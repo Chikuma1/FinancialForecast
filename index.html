@@ -250,6 +250,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
       <div class="field"><label>Split into N payments</label><input id="b_split" inputmode="numeric" min="1" value="1"></div>
       <div class="field"><label>&nbsp;</label><label class="checkrow"><input type="checkbox" id="b_late"> Can be late</label></div>
     </div>
+    <label class="checkrow" id="b_smart_row" style="display:none"><input type="checkbox" id="b_smart"> Smart split (pay more on lighter paychecks)</label>
     <div class="grid2" id="b_late_row" style="display:none">
       <div class="field"><label>Grace days</label><input id="b_grace" inputmode="numeric" value="0"></div>
       <div class="field"><label>Late fee ($)</label><input id="b_latefee" inputmode="decimal" value="0"></div>
@@ -358,13 +359,9 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     return false;
   }
 
-  // Split/late scheduling for one Expense-bill occurrence due on dueSerial.
-  // Returns { parts: [{date, amount, idx}], n, deferred, lateFee, firstDate, graceDays }.
-  // Pure function (no side effects), shared by the daily loop and the payday lookahead.
-  // Defaults (split_parts=1, allow_late=false) yield exactly one part on dueSerial.
-  function occurrenceParts(bill, dueSerial, paydates) {
-    var n = parseInt(bill.split_parts, 10);
-    if (isNaN(n) || n < 1) n = 1;
+  // First-payment date / deferral / fee for one Expense-bill occurrence.
+  // Pure (no side effects); shared by occurrenceParts and smartSchedule.
+  function firstDateInfo(bill, dueSerial, paydates) {
     var allowLate = !!bill.allow_late && bill.type === 'Expense';
     var grace = parseInt(bill.grace_days, 10);
     if (isNaN(grace) || grace < 0) grace = 0;
@@ -380,6 +377,44 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
       else firstDate = dueSerial + grace;
       deferred = firstDate > dueSerial;
     }
+    return { firstDate: firstDate, deferred: deferred, fee: fee, grace: grace };
+  }
+
+  function splitCount(bill) {
+    var n = parseInt(bill.split_parts, 10);
+    if (isNaN(n) || n < 1) n = 1;
+    return n;
+  }
+
+  // Smart split: Expense bill, 2+ parts, smart_split checked. Installments are
+  // sized from each payday's surplus instead of fixed equal parts.
+  function isSmartSplit(bill) {
+    return bill.type === 'Expense' && splitCount(bill) > 1 && !!bill.smart_split;
+  }
+
+  // Smart-split schedule for one Expense-bill occurrence: the first N paydays
+  // on/after firstDate. Returns null unless the bill is smart-split.
+  // Pure (no side effects).
+  function smartSchedule(bill, dueSerial, paydates) {
+    if (!isSmartSplit(bill)) return null;
+    var n = splitCount(bill);
+    var fi = firstDateInfo(bill, dueSerial, paydates);
+    var targets = [];
+    for (var i = 0; i < paydates.length && targets.length < n; i++) {
+      if (paydates[i] >= fi.firstDate) targets.push(paydates[i]);
+    }
+    return { firstDate: fi.firstDate, deferred: fi.deferred, fee: fi.fee,
+             grace: fi.grace, targets: targets, n: n };
+  }
+
+  // Split/late scheduling for one Expense-bill occurrence due on dueSerial.
+  // Returns { parts: [{date, amount, idx}], n, deferred, lateFee, firstDate, graceDays }.
+  // Pure function (no side effects), shared by the daily loop and the payday lookahead.
+  // Defaults (split_parts=1, allow_late=false) yield exactly one part on dueSerial.
+  function occurrenceParts(bill, dueSerial, paydates) {
+    var n = splitCount(bill);
+    var fi = firstDateInfo(bill, dueSerial, paydates);
+    var firstDate = fi.firstDate, deferred = fi.deferred, fee = fi.fee, grace = fi.grace;
     var amt = num(bill.amount, 0) / n;
     var later = [];
     for (var j = 0; j < paydates.length && later.length < n - 1; j++) {
@@ -462,6 +497,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     if (!('allow_late' in c)) c.allow_late = false;
     if (!('grace_days' in c)) c.grace_days = 0;
     if (!('late_fee' in c)) c.late_fee = 0.0;
+    if (!('smart_split' in c)) c.smart_split = false;
     if (c.amount === undefined) c.amount = 0.0;
     if (c.total_debt === undefined) c.total_debt = 0.0;
     if (!c.name) c.name = 'New Item';
@@ -537,6 +573,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     var paySet = {};
     for (var pi = 0; pi < paydates.length; pi++) paySet[paydates[pi]] = paydates.indexOf(paydates[pi]);
     var pending = {}; // serial -> [{bi, amount, idx, n}] split parts scheduled on earlier occurrence dates
+    var smartPlans = []; // [{bi, name, remaining, targets:[serials], pos, n, feePending}] smart-split installments
 
     var report = [], logs = [];
     var chartBase = 0, chartSav = 0, chartSnow = 0;
@@ -637,6 +674,32 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
           if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
           dayLog.push(' 💵 Received ' + bill.name + ': +$' + num(bill.amount, 0).toFixed(2));
           acted = true;
+        } else if (isSmartSplit(bill)) {
+          // Smart split: register an installment plan; amounts are sized from
+          // each target payday's surplus during the payday allocation phase.
+          var sch = smartSchedule(bill, cur, paydates);
+          if (sch.deferred) {
+            if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+            dayLog.push(' ⏳ ' + bill.name + ' deferred to ' + fmtDate(sch.firstDate, true) +
+              ' (within ' + sch.grace + '-day grace)');
+            acted = true;
+          }
+          if (sch.deferred && sch.fee > 0) {
+            if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+            dayLog.push(' ⚠️ Late fee applied: $' + sch.fee.toFixed(2));
+            acted = true;
+          }
+          if (sch.targets.length > 0) {
+            smartPlans.push({
+              bi: bi, name: bill.name,
+              remaining: num(bill.amount, 0),
+              targets: sch.targets, pos: 0, n: sch.n,
+              feePending: (sch.deferred && sch.fee > 0) ? sch.fee : 0
+            });
+          } else {
+            // No future payday exists: pay in full now like a single payment.
+            payPart(bi, num(bill.amount, 0) + ((sch.deferred && sch.fee > 0) ? sch.fee : 0), 1, 1);
+          }
         } else {
           var occ = occurrenceParts(bill, cur, paydates);
           if (occ.deferred) {
@@ -686,6 +749,10 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
             if (simSkips[qi]) { simSkips[qi] = false; continue; }
             if (qb.type === 'Income') {
               simBucket += num(qb.amount, 0);
+            } else if (isSmartSplit(qb)) {
+              // Smart installments are paid from surplus on their own paydays;
+              // they are not pre-deducted here.
+              continue;
             } else {
               var qocc = occurrenceParts(qb, cd, paydates);
               for (var qo = 0; qo < qocc.parts.length; qo++) {
@@ -706,6 +773,50 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
         }
 
         var surplus = Math.max(0, minBal - floor);
+
+        // (0) Smart-split installments outrank all discretionary allocations:
+        // bills > buckets > savings target > snowball > sweep.
+        var smartDue = false;
+        for (var spi0 = 0; spi0 < smartPlans.length; spi0++) {
+          var sp0 = smartPlans[spi0];
+          if (sp0.pos < sp0.targets.length && sp0.targets[sp0.pos] === cur) { smartDue = true; break; }
+        }
+        if (smartDue) {
+          for (var spi = 0; spi < smartPlans.length; spi++) {
+            var sp = smartPlans[spi];
+            if (sp.pos >= sp.targets.length || sp.targets[sp.pos] !== cur) continue;
+            var isLast = (sp.pos === sp.targets.length - 1);
+            var pb2 = bills[sp.bi];
+            var tdebt2 = num(pb2.total_debt, 0);
+            var debtRem2 = tdebt2 > 0 ? (debts[sp.bi] || 0) : 999999;
+            if (tdebt2 > 0 && debtRem2 <= 0) {
+              sp.remaining = 0; sp.pos = sp.targets.length; sp.feePending = 0;
+              continue;
+            }
+            var obligation = Math.min(sp.remaining, debtRem2);
+            if (obligation <= 0) { sp.pos++; continue; }
+            var payBase = isLast ? obligation : Math.min(obligation, surplus);
+            var feeNow = sp.feePending; sp.feePending = 0;
+            var due2 = Math.min(payBase + feeNow, debtRem2);
+            var forced = isLast && payBase > surplus;
+            if (due2 > 0) {
+              bucket -= due2;
+              surplus = Math.max(0, surplus - due2);
+              chartBase += due2;
+              if (tdebt2 > 0) debts[sp.bi] -= due2;
+              sp.remaining -= Math.min(due2, sp.remaining);
+              if (forced) dayLog.push(' Paid ' + sp.name + ' (final): $' + due2.toFixed(2) + ' (forced)');
+              else dayLog.push(' Paid ' + sp.name + ' (smart ' + (sp.pos + 1) + '/' + sp.n + '): $' + due2.toFixed(2));
+            }
+            sp.pos++;
+          }
+          // Bills are obligations: backstop the safety floor after forced payments.
+          if (bucket < floor && savings > 0) {
+            var pull2 = Math.min(floor - bucket, savings);
+            bucket += pull2; savings -= pull2;
+            dayLog.push(' 🚑 EMERGENCY PULL: $' + pull2.toFixed(2) + ' from savings');
+          }
+        }
 
         if (surplus > 0) {
           var bids = [];
@@ -985,14 +1096,15 @@ function splitLateBadges(b) {
   var gd = parseInt(b.grace_days, 10) || 0;
   var fee = num(b.late_fee, 0);
   var tip = [];
-  if (n > 1) tip.push('Split ' + n + ' ways');
+  var smart = n > 1 && !!b.smart_split;
+  if (n > 1) tip.push(smart ? 'Smart split: pays more on paychecks with fewer other bills' : 'Split ' + n + ' ways');
   if (b.allow_late) {
     tip.push('late up to ' + gd + ' days');
     if (fee > 0) tip.push('$' + fee.toFixed(2).replace(/\.00$/, '') + ' fee');
   }
   if (!tip.length) return '';
   var t = esc(tip.join(' · '));
-  if (n > 1) out += ' <span class="badge" title="' + t + '">÷' + n + '</span>';
+  if (n > 1) out += ' <span class="badge' + (smart ? ' smart' : '') + '" title="' + t + '">÷' + n + (smart ? '~' : '') + '</span>';
   if (b.allow_late) out += ' <span class="badge late" title="' + t + '">late</span>';
   return out;
 }
@@ -1314,6 +1426,7 @@ function openBillModal(bill) {
   $('b_snowball').checked = bill ? !!bill.snowball : false;
   $('b_paid').checked = bill ? !!bill.paid : false;
   $('b_split').value = bill && bill.split_parts != null ? bill.split_parts : 1;
+  $('b_smart').checked = bill ? !!bill.smart_split : false;
   $('b_late').checked = bill ? !!bill.allow_late : false;
   $('b_grace').value = bill && bill.grace_days != null ? bill.grace_days : 0;
   $('b_latefee').value = bill && bill.late_fee != null ? bill.late_fee : 0;
@@ -1325,6 +1438,8 @@ function updateBillModalExtras() {
   var isExp = $('b_type').value === 'Expense';
   $('b_split_row').style.display = isExp ? '' : 'none';
   $('b_late_row').style.display = (isExp && $('b_late').checked) ? '' : 'none';
+  var sp = parseInt($('b_split').value, 10) || 1;
+  $('b_smart_row').style.display = (isExp && sp > 1) ? '' : 'none';
 }
 function updateBillModalDue(curVal) {
   var type = $('b_type').value, freq = $('b_freq').value;
@@ -1387,12 +1502,13 @@ function saveBillModal() {
   if (type === 'Expense') {
     var sp = parseInt($('b_split').value, 10);
     bill.split_parts = isNaN(sp) || sp < 1 ? 1 : sp;
+    bill.smart_split = bill.split_parts > 1 ? $('b_smart').checked : false;
     bill.allow_late = $('b_late').checked;
     var gd = parseInt($('b_grace').value, 10);
     bill.grace_days = isNaN(gd) || gd < 0 ? 0 : gd;
     bill.late_fee = Math.max(0, num($('b_latefee').value, 0));
   } else {
-    bill.split_parts = 1; bill.allow_late = false; bill.grace_days = 0; bill.late_fee = 0;
+    bill.split_parts = 1; bill.allow_late = false; bill.grace_days = 0; bill.late_fee = 0; bill.smart_split = false;
   }
   if (!editingBill) p.bills.push(bill);
   closeModal('billModal'); saveStore(); recalc();
@@ -1467,6 +1583,7 @@ function init() {
   $('b_type').addEventListener('change', function () { updateBillModalDue(1); updateBillModalExtras(); });
   $('b_freq').addEventListener('change', function () { updateBillModalDue(1); });
   $('b_late').addEventListener('change', updateBillModalExtras);
+  $('b_split').addEventListener('input', updateBillModalExtras);
   $('billSave').addEventListener('click', saveBillModal);
   $('billCancel').addEventListener('click', function () { closeModal('billModal'); });
 
