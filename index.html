@@ -87,6 +87,9 @@ table.bills tr:last-child td { border-bottom:none; }
 .tag.expense{ background:rgba(239,71,111,.15); color:var(--red);}
 .tag.income{ background:rgba(6,214,160,.15); color:var(--teal);}
 .tag.bucket{ background:rgba(17,138,178,.18); color:var(--blue);}
+.badge { display:inline-block; padding:1px 7px; margin-left:6px; border-radius:20px; font-size:11px; font-weight:bold;
+  background:rgba(255,209,102,.16); color:var(--yellow); border:1px solid rgba(255,209,102,.4); white-space:nowrap; }
+.badge.late { background:rgba(240,108,0,.14); color:var(--orange); border-color:rgba(240,108,0,.4); }
 .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;}
 .toolbar .spacer{flex:1;}
 .logtabs { display:flex; gap:6px; margin-bottom:8px; align-items:center; flex-wrap:wrap;}
@@ -242,6 +245,16 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
   </div>
   <label class="checkrow"><input type="checkbox" id="b_snowball"> <span id="b_snowball_lbl">Debt snowball (extra payments)</span></label>
   <label class="checkrow"><input type="checkbox" id="b_paid"> Mark as paid (skipped once in forecast)</label>
+  <div id="b_split_row">
+    <div class="grid2">
+      <div class="field"><label>Split into N payments</label><input id="b_split" inputmode="numeric" min="1" value="1"></div>
+      <div class="field"><label>&nbsp;</label><label class="checkrow"><input type="checkbox" id="b_late"> Can be late</label></div>
+    </div>
+    <div class="grid2" id="b_late_row" style="display:none">
+      <div class="field"><label>Grace days</label><input id="b_grace" inputmode="numeric" value="0"></div>
+      <div class="field"><label>Late fee ($)</label><input id="b_latefee" inputmode="decimal" value="0"></div>
+    </div>
+  </div>
   <div class="btnrow"><button class="btn ghost" id="billCancel">Cancel</button><button class="btn good" id="billSave">Save</button></div>
 </div></div>
 
@@ -345,6 +358,44 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     return false;
   }
 
+  // Split/late scheduling for one Expense-bill occurrence due on dueSerial.
+  // Returns { parts: [{date, amount, idx}], n, deferred, lateFee, firstDate, graceDays }.
+  // Pure function (no side effects), shared by the daily loop and the payday lookahead.
+  // Defaults (split_parts=1, allow_late=false) yield exactly one part on dueSerial.
+  function occurrenceParts(bill, dueSerial, paydates) {
+    var n = parseInt(bill.split_parts, 10);
+    if (isNaN(n) || n < 1) n = 1;
+    var allowLate = !!bill.allow_late && bill.type === 'Expense';
+    var grace = parseInt(bill.grace_days, 10);
+    if (isNaN(grace) || grace < 0) grace = 0;
+    var fee = num(bill.late_fee, 0);
+    if (!(fee > 0)) fee = 0;
+    var firstDate = dueSerial, deferred = false;
+    if (allowLate && grace > 0) {
+      var pd = -1;
+      for (var i = 0; i < paydates.length; i++) {
+        if (paydates[i] >= dueSerial) { pd = paydates[i]; break; }
+      }
+      if (pd >= 0 && pd - dueSerial <= grace) firstDate = pd;
+      else firstDate = dueSerial + grace;
+      deferred = firstDate > dueSerial;
+    }
+    var amt = num(bill.amount, 0) / n;
+    var later = [];
+    for (var j = 0; j < paydates.length && later.length < n - 1; j++) {
+      if (paydates[j] > firstDate) later.push(paydates[j]);
+    }
+    var parts = [];
+    for (var k = 0; k < n; k++) {
+      var d = (k === 0) ? firstDate : (k - 1 < later.length ? later[k - 1] : -1);
+      if (d < 0) break; // not enough future paydays; remaining parts are dropped
+      var a = amt + ((k === 0 && deferred && fee > 0) ? fee : 0);
+      parts.push({ date: d, amount: a, idx: k + 1 });
+    }
+    return { parts: parts, n: n, deferred: deferred,
+      lateFee: (deferred && fee > 0) ? fee : 0, firstDate: firstDate, graceDays: grace };
+  }
+
   function generatePaydates(startSerial, totalDays, frequency, baseSerial) {
     var out = [];
     var seen = {};
@@ -407,6 +458,10 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     if (!('apr' in c)) c.apr = 0.0;
     if (!('snowball' in c)) c.snowball = (num(c.total_debt, 0) > 0);
     if (!('paid' in c)) c.paid = false;
+    if (!('split_parts' in c)) c.split_parts = 1;
+    if (!('allow_late' in c)) c.allow_late = false;
+    if (!('grace_days' in c)) c.grace_days = 0;
+    if (!('late_fee' in c)) c.late_fee = 0.0;
     if (c.amount === undefined) c.amount = 0.0;
     if (c.total_debt === undefined) c.total_debt = 0.0;
     if (!c.name) c.name = 'New Item';
@@ -481,6 +536,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     var paydates = generatePaydates(startSerial, totalDays, freq, o.nextPaydateSerial);
     var paySet = {};
     for (var pi = 0; pi < paydates.length; pi++) paySet[paydates[pi]] = paydates.indexOf(paydates[pi]);
+    var pending = {}; // serial -> [{bi, amount, idx, n}] split parts scheduled on earlier occurrence dates
 
     var report = [], logs = [];
     var chartBase = 0, chartSav = 0, chartSnow = 0;
@@ -537,6 +593,35 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
         acted = true;
       }
 
+      // Pay one scheduled bill part (shared by same-day occurrences and carried-over parts).
+      // With defaults (n=1) this reproduces the original single-payment path exactly.
+      var payPart = function (bi, amount, idx, n) {
+        var pb = bills[bi];
+        var tdebt = num(pb.total_debt, 0);
+        var rem = tdebt > 0 ? (debts[bi] || 0) : 999999;
+        if (tdebt > 0 && rem <= 0) return;
+        var due = Math.min(amount, rem);
+        if (due !== 0) {
+          bucket -= due;
+          chartBase += due;
+          if (tdebt > 0) debts[bi] -= due;
+          if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+          if (n > 1) dayLog.push(' Paid ' + pb.name + ' (' + idx + '/' + n + '): $' + due.toFixed(2));
+          else dayLog.push(' Paid ' + pb.name + ': $' + due.toFixed(2));
+          acted = true;
+        }
+      };
+
+      // carried-over split parts from earlier occurrences, due today
+      var carried = pending[cur];
+      if (carried) {
+        delete pending[cur];
+        for (var ci = 0; ci < carried.length; ci++) {
+          var cp = carried[ci];
+          payPart(cp.bi, cp.amount, cp.idx, cp.n);
+        }
+      }
+
       for (var bi = 0; bi < bills.length; bi++) {
         var bill = bills[bi];
         if (!isBillDueOnDate(bill, cur)) continue;
@@ -553,17 +638,26 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
           dayLog.push(' 💵 Received ' + bill.name + ': +$' + num(bill.amount, 0).toFixed(2));
           acted = true;
         } else {
-          var tdebt = num(bill.total_debt, 0);
-          var rem = tdebt > 0 ? (debts[bi] || 0) : 999999;
-          if (tdebt > 0 && rem <= 0) continue;
-          var due = Math.min(num(bill.amount, 0), rem);
-          if (due !== 0) {
-            bucket -= due;
-            chartBase += due;
-            if (tdebt > 0) debts[bi] -= due;
+          var occ = occurrenceParts(bill, cur, paydates);
+          if (occ.deferred) {
             if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
-            dayLog.push(' Paid ' + bill.name + ': $' + due.toFixed(2));
+            dayLog.push(' ⏳ ' + bill.name + ' deferred to ' + fmtDate(occ.firstDate, true) +
+              ' (within ' + occ.graceDays + '-day grace)');
             acted = true;
+          }
+          if (occ.lateFee > 0) {
+            if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+            dayLog.push(' ⚠️ Late fee applied: $' + occ.lateFee.toFixed(2));
+            acted = true;
+          }
+          for (var oi = 0; oi < occ.parts.length; oi++) {
+            var pt = occ.parts[oi];
+            if (pt.date === cur) payPart(bi, pt.amount, pt.idx, occ.n);
+            else {
+              var arr = pending[pt.date];
+              if (!arr) { arr = []; pending[pt.date] = arr; }
+              arr.push({ bi: bi, amount: pt.amount, idx: pt.idx, n: occ.n });
+            }
           }
         }
       }
@@ -593,12 +687,17 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
             if (qb.type === 'Income') {
               simBucket += num(qb.amount, 0);
             } else {
-              var qt = num(qb.total_debt, 0);
-              var qr = qt > 0 ? (simDebts[qi] || 0) : 999999;
-              var qdue = Math.min(num(qb.amount, 0), qr);
-              if (qdue !== 0) {
-                simBucket -= qdue;
-                if (qt > 0) simDebts[qi] -= qdue;
+              var qocc = occurrenceParts(qb, cd, paydates);
+              for (var qo = 0; qo < qocc.parts.length; qo++) {
+                var qp = qocc.parts[qo];
+                if (qp.date <= cur || qp.date >= nextPay) continue;
+                var qt = num(qb.total_debt, 0);
+                var qr = qt > 0 ? (simDebts[qi] || 0) : 999999;
+                var qdue = Math.min(qp.amount, qr);
+                if (qdue !== 0) {
+                  simBucket -= qdue;
+                  if (qt > 0) simDebts[qi] -= qdue;
+                }
               }
             }
           }
@@ -734,6 +833,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     ymd: ymd, isoWeekday: isoWeekday, actualDueDate: actualDueDate,
     isBillDueOnDate: isBillDueOnDate, generatePaydates: generatePaydates,
     normalizeBills: normalizeBills, sortBills: sortBills,
+    occurrenceParts: occurrenceParts,
     runSimulation: runSimulation, optsFromProfile: optsFromProfile, runBoth: runBoth
   };
 });
@@ -878,6 +978,24 @@ function fmtAction(b) {
   if (b.type === 'Bucket' && num(b.total_debt, 0) < num(b.amount, 0)) return 'Fund';
   return '-';
 }
+function splitLateBadges(b) {
+  if (b.type !== 'Expense') return '';
+  var out = '';
+  var n = parseInt(b.split_parts, 10) || 1;
+  var gd = parseInt(b.grace_days, 10) || 0;
+  var fee = num(b.late_fee, 0);
+  var tip = [];
+  if (n > 1) tip.push('Split ' + n + ' ways');
+  if (b.allow_late) {
+    tip.push('late up to ' + gd + ' days');
+    if (fee > 0) tip.push('$' + fee.toFixed(2).replace(/\.00$/, '') + ' fee');
+  }
+  if (!tip.length) return '';
+  var t = esc(tip.join(' · '));
+  if (n > 1) out += ' <span class="badge" title="' + t + '">÷' + n + '</span>';
+  if (b.allow_late) out += ' <span class="badge late" title="' + t + '">late</span>';
+  return out;
+}
 function renderBills() {
   var tb = $('billBody'); tb.innerHTML = '';
   if (!lastBills.length) {
@@ -890,7 +1008,7 @@ function renderBills() {
     var apr = num(b.apr, 0);
     tr.innerHTML =
       '<td><input type="checkbox" class="paidchk" ' + (b.paid ? 'checked' : '') + ' aria-label="paid"></td>' +
-      '<td><b>' + esc(b.name) + '</b></td>' +
+      '<td><b>' + esc(b.name) + '</b>' + splitLateBadges(b) + '</td>' +
       '<td><span class="tag ' + tag + '">' + esc(b.type) + '</span></td>' +
       '<td>' + esc(fmtAmt(b)) + '</td>' +
       '<td>' + esc(b.type === 'Bucket' ? 'N/A' : b.freq) + '</td>' +
@@ -1195,8 +1313,18 @@ function openBillModal(bill) {
   $('b_debt').value = bill ? bill.total_debt : '0';
   $('b_snowball').checked = bill ? !!bill.snowball : false;
   $('b_paid').checked = bill ? !!bill.paid : false;
+  $('b_split').value = bill && bill.split_parts != null ? bill.split_parts : 1;
+  $('b_late').checked = bill ? !!bill.allow_late : false;
+  $('b_grace').value = bill && bill.grace_days != null ? bill.grace_days : 0;
+  $('b_latefee').value = bill && bill.late_fee != null ? bill.late_fee : 0;
   updateBillModalDue(bill ? bill.due_day : 1);
+  updateBillModalExtras();
   openModal('billModal');
+}
+function updateBillModalExtras() {
+  var isExp = $('b_type').value === 'Expense';
+  $('b_split_row').style.display = isExp ? '' : 'none';
+  $('b_late_row').style.display = (isExp && $('b_late').checked) ? '' : 'none';
 }
 function updateBillModalDue(curVal) {
   var type = $('b_type').value, freq = $('b_freq').value;
@@ -1256,6 +1384,16 @@ function saveBillModal() {
     bill.due_day = dueEl.value || todayISO();
   }
   if (type === 'Income') bill.snowball = false;
+  if (type === 'Expense') {
+    var sp = parseInt($('b_split').value, 10);
+    bill.split_parts = isNaN(sp) || sp < 1 ? 1 : sp;
+    bill.allow_late = $('b_late').checked;
+    var gd = parseInt($('b_grace').value, 10);
+    bill.grace_days = isNaN(gd) || gd < 0 ? 0 : gd;
+    bill.late_fee = Math.max(0, num($('b_latefee').value, 0));
+  } else {
+    bill.split_parts = 1; bill.allow_late = false; bill.grace_days = 0; bill.late_fee = 0;
+  }
   if (!editingBill) p.bills.push(bill);
   closeModal('billModal'); saveStore(); recalc();
   toast(editingBill ? 'Updated' : 'Added');
@@ -1326,8 +1464,9 @@ function init() {
   $('transCancel').addEventListener('click', function () { closeModal('transModal'); });
 
   $('addBillBtn').addEventListener('click', function () { openBillModal(null); });
-  $('b_type').addEventListener('change', function () { updateBillModalDue(1); });
+  $('b_type').addEventListener('change', function () { updateBillModalDue(1); updateBillModalExtras(); });
   $('b_freq').addEventListener('change', function () { updateBillModalDue(1); });
+  $('b_late').addEventListener('change', updateBillModalExtras);
   $('billSave').addEventListener('click', saveBillModal);
   $('billCancel').addEventListener('click', function () { closeModal('billModal'); });
 
