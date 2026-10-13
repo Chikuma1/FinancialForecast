@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Financial Forecaster</title>
+<style>
+:root, html[data-theme="dark"] {
+  --bg:#131314; --card:#1e1f22; --entry:#2a2d30; --border:#45474a;
+  --fg:#e3e3e3; --muted:#9a9a9a; --input-fg:#ffffff;
+  --blue:#118ab2; --green:#90be6d; --red:#ef476f; --teal:#06d6a0;
+  --orange:#f06c00; --yellow:#ffd166; --purple:#bb86fc;
+}
+html[data-theme="light"] {
+  --bg:#ffffff; --card:#f8f9fa; --entry:#e8eaed; --border:#cccccc;
+  --fg:#111111; --muted:#666666; --input-fg:#000000;
+  --blue:#0d6e8c; --green:#638a48; --red:#b52c4a; --teal:#04946e;
+  --orange:#c85a00; --yellow:#8a6d00; --purple:#7a4fd0;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; font-size:15px; }
+header { position:sticky; top:0; z-index:20; background:var(--card);
+  border-bottom:1px solid var(--border); padding:10px 14px;
+  display:flex; align-items:center; gap:10px; }
+header h1 { font-size:17px; margin:0; flex:1; }
+button, select, input { font-family:inherit; }
+.btn { background:var(--entry); color:var(--fg); border:1px solid var(--border);
+  border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer; }
+.btn:active { opacity:.75; }
+.btn.primary { background:var(--blue); border-color:var(--blue); color:#fff; }
+.btn.good { background:var(--teal); border-color:var(--teal); color:#06281f; font-weight:bold; }
+.btn.danger { background:var(--red); border-color:var(--red); color:#fff; }
+.btn.ghost { background:transparent; }
+.iconbtn { background:transparent; border:none; color:var(--fg); font-size:20px;
+  padding:6px 8px; cursor:pointer; border-radius:8px; }
+main { max-width:1100px; margin:0 auto; padding:12px 12px 60px; display:flex;
+  flex-direction:column; gap:14px; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px;
+  padding:14px; }
+.card h2 { margin:0 0 10px; font-size:15px; }
+.sumrow { display:grid; grid-template-columns:1fr; gap:8px; }
+@media(min-width:700px){ .sumrow{ grid-template-columns:1fr 1fr; } }
+.sumcard { border-radius:10px; padding:12px 14px; background:var(--entry);
+  border-left:5px solid var(--blue); font-weight:bold; font-size:15px; }
+.sumcard.cmp { border-left-color:var(--green); }
+.sumcard .lbl { font-size:12px; font-weight:normal; color:var(--muted); display:block; margin-bottom:4px;}
+.chart-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;}
+.chart-head h2 { margin:0; flex:1; font-size:15px;}
+#chart { width:100%; height:330px; display:block; touch-action:manipulation; }
+@media(min-width:700px){ #chart{ height:400px; } }
+#tooltip { position:absolute; pointer-events:none; background:var(--card);
+  border:2px solid var(--teal); border-radius:8px; padding:8px 10px; font-size:12px;
+  font-weight:bold; display:none; z-index:30; max-width:240px; white-space:pre-line;}
+.chart-wrap { position:relative; }
+.legend { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:var(--muted); margin-top:8px;}
+.legend span i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px;}
+details.settings { background:var(--card); border:1px solid var(--border); border-radius:12px; }
+details.settings summary { padding:13px 14px; font-weight:bold; font-size:15px; cursor:pointer; list-style:none;}
+details.settings summary::-webkit-details-marker { display:none; }
+details.settings summary::before { content:"▸ "; color:var(--muted);}
+details.settings[open] summary::before { content:"▾ "; }
+.set-body { padding:0 14px 14px; display:flex; flex-direction:column; gap:14px;}
+.set-group h3 { margin:0 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px;}
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px 10px; }
+@media(min-width:700px){ .grid2{ grid-template-columns:repeat(4,1fr);} }
+.field label { display:block; font-size:12px; color:var(--muted); margin-bottom:3px;}
+.field input, .field select { width:100%; background:var(--entry); color:var(--input-fg);
+  border:1px solid var(--border); border-radius:8px; padding:9px 10px; font-size:15px; }
+.rowflex { display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+.tblwrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+table.bills { width:100%; border-collapse:collapse; font-size:13px; min-width:760px;}
+table.bills th { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border);
+  color:var(--muted); font-size:12px; white-space:nowrap; cursor:pointer; user-select:none;}
+table.bills td { padding:8px 6px; border-bottom:1px solid var(--entry); white-space:nowrap;}
+table.bills tr:last-child td { border-bottom:none; }
+.paidchk { width:22px; height:22px; accent-color:var(--teal); }
+.tag { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:bold;}
+.tag.expense{ background:rgba(239,71,111,.15); color:var(--red);}
+.tag.income{ background:rgba(6,214,160,.15); color:var(--teal);}
+.tag.bucket{ background:rgba(17,138,178,.18); color:var(--blue);}
+.toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;}
+.toolbar .spacer{flex:1;}
+.logtabs { display:flex; gap:6px; margin-bottom:8px; align-items:center; flex-wrap:wrap;}
+.logtabs .spacer{flex:1;}
+.tabbtn { border:1px solid var(--border); background:var(--entry); color:var(--fg);
+  border-radius:20px; padding:7px 16px; font-size:13px; cursor:pointer;}
+.tabbtn.active { background:var(--blue); border-color:var(--blue); color:#fff;}
+#logsearch { background:var(--entry); color:var(--input-fg); border:1px solid var(--border);
+  border-radius:8px; padding:8px 10px; font-size:14px; width:200px;}
+pre.log { background:var(--entry); border:1px solid var(--border); border-radius:8px;
+  padding:10px; font-size:12px; line-height:1.55; max-height:420px; overflow:auto;
+  white-space:pre-wrap; word-break:break-word; margin:0; font-family:ui-monospace,Menlo,Consolas,monospace;}
+footer.card { font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:10px;}
+footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
+.modal-back { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:50;
+  display:none; align-items:flex-start; justify-content:center; padding:20px 12px; overflow:auto;}
+.modal-back.open { display:flex; }
+.modal { background:var(--card); border:1px solid var(--border); border-radius:14px;
+  padding:18px; width:100%; max-width:420px; margin:auto 0; }
+.modal h2 { margin:0 0 12px; font-size:16px;}
+.modal .field { margin-bottom:10px;}
+.modal .btnrow { display:flex; gap:8px; margin-top:14px;}
+.modal .btnrow .btn { flex:1; }
+.checkrow { display:flex; align-items:center; gap:10px; margin:10px 0; font-size:14px;}
+.checkrow input { width:20px; height:20px; accent-color:var(--teal);}
+#toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  background:var(--card); border:1px solid var(--teal); color:var(--fg);
+  padding:10px 18px; border-radius:10px; font-size:14px; z-index:99; display:none;}
+.hiddenfile { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>💰 Financial Forecaster</h1>
+  <button class="iconbtn" id="themeBtn" title="Toggle dark/light mode">🌙</button>
+</header>
+<main>
+  <div class="sumrow">
+    <div class="sumcard" id="stdSum"><span class="lbl">Standard Plan</span><span class="val">—</span></div>
+    <div class="sumcard cmp" id="cmpSum"><span class="lbl">Compare Plan</span><span class="val">—</span></div>
+  </div>
+
+  <section class="card">
+    <div class="chart-head">
+      <h2>Financial Trajectory</h2>
+      <select id="timelineSel" class="btn" aria-label="Timeline"></select>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+      <div id="tooltip"></div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <details class="settings" open>
+    <summary>⚙️ Settings &amp; Profiles</summary>
+    <div class="set-body">
+      <div class="set-group">
+        <h3>Profile</h3>
+        <div class="rowflex">
+          <select id="profileSel" class="btn" style="flex:1" aria-label="Active profile"></select>
+          <button class="btn" id="newProfileBtn">+ New</button>
+        </div>
+      </div>
+      <div class="set-group">
+        <h3>Time &amp; Schedule</h3>
+        <div class="grid2">
+          <div class="field"><label>Sim Start (blank = today)</label><input id="in_sim_start" placeholder="YYYY-MM-DD" inputmode="numeric"></div>
+          <div class="field"><label>Next Payday</label><input id="in_next_paydate" placeholder="YYYY-MM-DD" inputmode="numeric"></div>
+          <div class="field"><label>Pay Frequency</label><select id="in_pay_freq"><option>Weekly</option><option>Bi-Weekly</option><option>Semi-Monthly</option></select></div>
+        </div>
+      </div>
+      <div class="set-group">
+        <h3>Current Balances</h3>
+        <div class="grid2">
+          <div class="field"><label>Checking ($)</label><input id="in_start_chk" inputmode="decimal"></div>
+          <div class="field"><label>Savings ($)</label><input id="in_start_sav" inputmode="decimal"></div>
+          <div class="field"><label>Savings APY (%)</label><input id="in_sav_apy" inputmode="decimal"></div>
+        </div>
+      </div>
+      <div class="set-group">
+        <h3>Rates &amp; Targets</h3>
+        <div class="grid2">
+          <div class="field"><label style="color:var(--blue)">Std Rate ($/hr)</label><input id="in_std_rate" inputmode="decimal"></div>
+          <div class="field"><label style="color:var(--green)">Cmp Rate ($/hr)</label><input id="in_cmp_rate" inputmode="decimal"></div>
+          <div class="field"><label>Hours / Week</label><input id="in_hours" inputmode="decimal"></div>
+          <div class="field"><label>Tax Rate (%)</label><input id="in_tax_rate" inputmode="decimal"></div>
+          <div class="field"><label style="color:var(--red)">Safety Floor ($)</label><input id="in_safety_floor" inputmode="decimal"></div>
+          <div class="field"><label style="color:var(--teal)">Savings Target ($)</label><input id="in_sav_tgt" inputmode="decimal"></div>
+        </div>
+        <div class="rowflex" style="margin-top:10px">
+          <button class="btn primary" id="transBtn">+ Add Job Transition</button>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <section class="card">
+    <div class="toolbar">
+      <h2 style="margin:0;flex:1">Bills, Debts &amp; Goals</h2>
+      <button class="btn good" id="addBillBtn" title="Add new item">＋ Add</button>
+      <button class="btn" id="realityBtn" title="Log a real-world transaction">📝 Log Reality</button>
+    </div>
+    <div class="tblwrap">
+      <table class="bills" id="billTable">
+        <thead><tr>
+          <th data-c="Paid">Paid</th><th data-c="Name">Name</th><th data-c="Type">Type</th>
+          <th data-c="Amount">Amount</th><th data-c="Freq">Freq</th><th data-c="Due/Pri">Due/Pri</th>
+          <th data-c="APR%">APR%</th><th data-c="Bal/Target">Bal/Target</th><th data-c="Action?">Action?</th>
+          <th data-c="">Edit</th><th data-c="">Del</th>
+        </tr></thead>
+        <tbody id="billBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="logtabs">
+      <button class="tabbtn active" data-tab="std">Standard Plan</button>
+      <button class="tabbtn" data-tab="cmp">Compare Plan</button>
+      <span class="spacer"></span>
+      <input id="logsearch" placeholder="🔍 Search logs">
+    </div>
+    <pre class="log" id="logPre"></pre>
+  </section>
+
+  <footer class="card">
+    <div>🔒 <b>Your data stays in this browser.</b> Profiles are saved in this device's local storage only — nothing is uploaded anywhere. Use Export to back up or move a profile to another device.</div>
+    <div class="btnrow">
+      <button class="btn" id="csvBtn">⬇ Export CSV</button>
+      <button class="btn" id="importBtn">⬆ Import Profile JSON</button>
+      <button class="btn" id="exportJsonBtn">⬇ Export Profile JSON</button>
+      <button class="btn danger" id="wipeBtn">Wipe All Bills</button>
+    </div>
+    <input type="file" id="fileInput" class="hiddenfile" accept=".json,application/json">
+  </footer>
+</main>
+
+<div class="modal-back" id="billModal"><div class="modal">
+  <h2 id="billModalTitle">Add Item</h2>
+  <div class="field"><label>Name</label><input id="b_name"></div>
+  <div class="grid2">
+    <div class="field"><label>Type</label><select id="b_type"><option>Expense</option><option>Income</option><option>Bucket</option></select></div>
+    <div class="field"><label>Amount ($)</label><input id="b_amount" inputmode="decimal"></div>
+  </div>
+  <div class="grid2">
+    <div class="field"><label>Frequency</label><select id="b_freq"><option>Monthly</option><option>Weekly</option><option>One-Time</option></select></div>
+    <div class="field"><label id="b_due_lbl">Due Day</label><span id="b_due_wrap"></span></div>
+  </div>
+  <div class="grid2" id="b_debt_row">
+    <div class="field"><label>APR (%)</label><input id="b_apr" inputmode="decimal"></div>
+    <div class="field"><label id="b_debt_lbl">Debt Balance ($)</label><input id="b_debt" inputmode="decimal"></div>
+  </div>
+  <label class="checkrow"><input type="checkbox" id="b_snowball"> <span id="b_snowball_lbl">Debt snowball (extra payments)</span></label>
+  <label class="checkrow"><input type="checkbox" id="b_paid"> Mark as paid (skipped once in forecast)</label>
+  <div class="btnrow"><button class="btn ghost" id="billCancel">Cancel</button><button class="btn good" id="billSave">Save</button></div>
+</div></div>
+
+<div class="modal-back" id="realityModal"><div class="modal">
+  <h2>Log Reality Event</h2>
+  <div class="field"><label>Transaction Type</label><select id="r_type">
+    <option>Expense (Checking)</option><option>Expense (Savings)</option>
+    <option>Income (Checking)</option><option>Income (Savings)</option>
+    <option>Transfer (Chk -&gt; Sav)</option><option>Transfer (Sav -&gt; Chk)</option>
+  </select></div>
+  <div class="field"><label>Amount ($)</label><input id="r_amt" inputmode="decimal" placeholder="0.00"></div>
+  <div class="btnrow"><button class="btn ghost" id="realityCancel">Cancel</button><button class="btn good" id="realitySave">Confirm &amp; Update Balances</button></div>
+</div></div>
+
+<div class="modal-back" id="transModal"><div class="modal">
+  <h2>Job Transition Engine</h2>
+  <div class="field"><label>Future Change Date (YYYY-MM-DD)</label><input id="t_date" placeholder="YYYY-MM-DD" inputmode="numeric"></div>
+  <div class="field"><label style="color:var(--blue)">New Std Rate ($)</label><input id="t_std" inputmode="decimal"></div>
+  <div class="field"><label style="color:var(--green)">New Cmp Rate ($)</label><input id="t_cmp" inputmode="decimal"></div>
+  <div class="field"><label>New Hours / Week</label><input id="t_hrs" inputmode="decimal"></div>
+  <div class="btnrow"><button class="btn danger" id="transClear">Clear</button><button class="btn good" id="transSave">Activate</button></div>
+  <div class="btnrow"><button class="btn ghost" id="transCancel">Cancel</button></div>
+</div></div>
+
+<div id="toast"></div>
+<script>/* ForecastEngine — faithful JS port of run_simulation + helpers from main.py
+ * (Dual-Rate Financial Forecaster V5.9). Dates are integer day serials (UTC)
+ * so behavior is timezone-independent. Works in browsers and under node. */
+(function (root, factory) {
+  var mod = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = mod;
+  else root.ForecastEngine = mod;
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  var DAY = 86400000;
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var TIME_MAP = {
+    '1 Month': 30, '2 Months': 60, '3 Months': 90, '6 Months': 180, '8 Months': 240,
+    '1 Year': 365, '2 Years': 730, '3 Years': 1095, '5 Years': 1825
+  };
+  var CHART_XLIM = {
+    '1 Month': 4.3, '2 Months': 8.6, '3 Months': 12.8, '6 Months': 25.7, '8 Months': 34.3,
+    '1 Year': 52.1, '2 Years': 104.3, '3 Years': 156.4, '5 Years': 260.7
+  };
+  var TIMELINES = ['1 Month', '2 Months', '3 Months', '6 Months', '8 Months', '1 Year', '2 Years', '3 Years', '5 Years'];
+
+  // "YYYY-MM-DD" -> day serial, or null
+  function parseDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s == null ? '' : s).trim());
+    if (!m) return null;
+    return Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY);
+  }
+
+  function ymd(serial) {
+    var d = new Date(serial * DAY);
+    return [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()];
+  }
+
+  function fmtDate(serial, withYear) {
+    var p = ymd(serial);
+    var s = MONTHS[p[1] - 1] + ' ' + String(p[2]).padStart(2, '0');
+    return withYear ? s + ', ' + p[0] : s;
+  }
+
+  function todaySerial() {
+    var n = new Date();
+    return Math.floor(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) / DAY);
+  }
+
+  function isoWeekday(serial) { // Mon=1..Sun=7 like Python isoweekday()
+    return ((new Date(serial * DAY).getUTCDay() + 6) % 7) + 1;
+  }
+
+  function lastDayOfMonth(y, m) { // m 1-based
+    return new Date(Date.UTC(y, m, 0)).getUTCDate();
+  }
+
+  function actualDueDate(serial, requestedDay) {
+    var p = ymd(serial);
+    var dd = Math.min(requestedDay, lastDayOfMonth(p[0], p[1]));
+    return Math.floor(Date.UTC(p[0], p[1] - 1, dd) / DAY);
+  }
+
+  function isBillDueOnDate(bill, serial) {
+    if (bill.type === 'Bucket') return false;
+    var freq = bill.freq || 'Monthly';
+    var dueVal = bill.due_day;
+    if (freq === 'Monthly') {
+      var n = parseInt(dueVal, 10);
+      if (isNaN(n)) return false;
+      return serial === actualDueDate(serial, n);
+    } else if (freq === 'Weekly') {
+      var w = parseInt(dueVal, 10);
+      if (isNaN(w)) return false;
+      return isoWeekday(serial) === w;
+    } else if (freq === 'One-Time') {
+      var t = parseDate(dueVal);
+      return t !== null && serial === t;
+    }
+    return false;
+  }
+
+  function generatePaydates(startSerial, totalDays, frequency, baseSerial) {
+    var out = [];
+    var seen = {};
+    function add(s) { if (!(s in seen)) { seen[s] = 1; out.push(s); } }
+    if (frequency === 'Weekly' || frequency === 'Bi-Weekly') {
+      var step = frequency === 'Weekly' ? 7 : 14;
+      var cur = baseSerial;
+      while (cur >= startSerial - step) cur -= step; // mirrors Python (result discarded)
+      cur = baseSerial;
+      var endLim = startSerial + totalDays + 30;
+      while (cur <= endLim) {
+        if (cur >= startSerial) add(cur);
+        cur += step;
+      }
+    } else if (frequency === 'Semi-Monthly') {
+      var bd = ymd(baseSerial)[2];
+      var d1 = 15, d2 = 31;
+      if (bd !== 15 && bd !== 31 && bd !== 30) { d1 = bd; d2 = Math.min(d1 + 15, 31); }
+      var p0 = ymd(startSerial);
+      var curMonth = Math.floor(Date.UTC(p0[0], p0[1] - 1, 1) / DAY);
+      var endLim2 = startSerial + totalDays + 30;
+      while (curMonth <= endLim2) {
+        var p1 = actualDueDate(curMonth, d1);
+        var p2 = actualDueDate(curMonth, d2);
+        if (p1 >= startSerial) add(p1);
+        if (p2 >= startSerial) add(p2);
+        var cp = ymd(curMonth);
+        var nm = cp[1] === 12 ? 1 : cp[1] + 1;
+        var ny = cp[1] === 12 ? cp[0] + 1 : cp[0];
+        curMonth = Math.floor(Date.UTC(ny, nm - 1, 1) / DAY);
+      }
+    }
+    out.sort(function (a, b) { return a - b; });
+    return out;
+  }
+
+  // Python str(float): 20.0 -> "20.0", 20.15 -> "20.15"
+  function pyFloat(n) {
+    if (!isFinite(n)) return String(n);
+    if (Math.round(n) === n && Math.abs(n) < 1e15) return n.toFixed(1);
+    return String(n);
+  }
+
+  function num(v, fb) {
+    var n = parseFloat(v);
+    return isNaN(n) ? fb : n;
+  }
+
+  // Normalize one bill dict the way load_data() does
+  function normalizeBill(b) {
+    var c = {};
+    for (var k in b) c[k] = b[k];
+    if (!('type' in c)) c.type = 'Expense';
+    if (!('freq' in c)) c.freq = 'Monthly';
+    if (!('due_day' in c)) {
+      var wd = c.week_due !== undefined ? c.week_due : 1;
+      delete c.week_due;
+      c.due_day = wd * 7;
+    }
+    if (!('apr' in c)) c.apr = 0.0;
+    if (!('snowball' in c)) c.snowball = (num(c.total_debt, 0) > 0);
+    if (!('paid' in c)) c.paid = false;
+    if (c.amount === undefined) c.amount = 0.0;
+    if (c.total_debt === undefined) c.total_debt = 0.0;
+    if (!c.name) c.name = 'New Item';
+    return c;
+  }
+
+  function normalizeBills(bills) {
+    return (bills || []).map(normalizeBill);
+  }
+
+  // Default "Due/Pri" bill ordering, mirroring sort_bills()
+  function billSortKey(b, col) {
+    var name = String(b.name || '').toLowerCase();
+    if (col === 'Paid') return [b.paid ? 1 : 0, name];
+    if (col === 'Name') return [name];
+    if (col === 'Type') return [b.type || 'Expense', name];
+    if (col === 'Amount') return [num(b.amount, 0), name];
+    if (col === 'Freq') return [b.freq || 'Monthly', name];
+    if (col === 'APR%') return [num(b.apr, 0), name];
+    if (col === 'Bal/Target') return [num(b.total_debt, 0), name];
+    if (col === 'Action?') return [b.snowball ? 1 : 0, name];
+    var freq = b.freq || 'Monthly';
+    var val = b.due_day;
+    var isd = /^\d+$/.test(String(val));
+    if (b.type === 'Bucket') return [-1, isd ? parseInt(val, 10) : 99, name];
+    if (freq === 'Monthly') return [0, isd ? parseInt(val, 10) : 0, name];
+    if (freq === 'Weekly') return [1, isd ? parseInt(val, 10) : 0, name];
+    if (freq === 'One-Time') return [2, String(val), name];
+    return [3, String(val), name];
+  }
+
+  function cmpKeys(a, b) {
+    for (var i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i] < b[i]) return -1;
+      if (a[i] > b[i]) return 1;
+    }
+    return a.length - b.length;
+  }
+
+  function sortBills(bills, col, rev) {
+    var arr = bills.slice();
+    arr.sort(function (x, y) {
+      var c = cmpKeys(billSortKey(x, col), billSortKey(y, col));
+      return rev ? -c : c;
+    });
+    return arr;
+  }
+
+  /* opts: {rate, hours, taxRate, targetSav, startChk, startSav, floor,
+            timeline, tRate, transHrs, transActive, transDateSerial (or null),
+            nextPaydateSerial, simStartSerial, payFreq, savApy}
+     bills: normalized array (order = display/sort order, indices consistent) */
+  function runSimulation(bills, o) {
+    var totalDays = TIME_MAP[o.timeline] || 90;
+    var startSerial = (o.simStartSerial != null) ? o.simStartSerial : todaySerial();
+    var freq = o.payFreq || 'Bi-Weekly';
+    var bucket = o.startChk, savings = o.startSav, floor = o.floor;
+    var rate = o.rate, hours = o.hours, taxRate = o.taxRate, targetSav = o.targetSav;
+    var savApy = o.savApy || 0;
+    var tRate = o.tRate, transHrs = o.transHrs || 0;
+    var transActive = !!o.transActive, transDate = o.transDateSerial;
+    if (transActive && transDate == null) transActive = false; // mirrors Python's try/except fallback
+
+    var debts = {}, bucketsBal = {}, paidSkips = {};
+    for (var i = 0; i < bills.length; i++) {
+      var b = bills[i];
+      if (b.type === 'Expense' && num(b.total_debt, 0) > 0) debts[i] = num(b.total_debt, 0);
+      if (b.type === 'Bucket') bucketsBal[i] = num(b.total_debt, 0);
+      paidSkips[i] = !!b.paid;
+    }
+
+    var paydates = generatePaydates(startSerial, totalDays, freq, o.nextPaydateSerial);
+    var paySet = {};
+    for (var pi = 0; pi < paydates.length; pi++) paySet[paydates[pi]] = paydates.indexOf(paydates[pi]);
+
+    var report = [], logs = [];
+    var chartBase = 0, chartSav = 0, chartSnow = 0;
+    var mIntAcc = 0.0, mSavIntAcc = 0.0;
+    var curRate = rate, curHours = hours;
+    var cur = startSerial, endSerial = startSerial + totalDays;
+
+    while (cur < endSerial) {
+      var dayLog = [], acted = false;
+      var dp = ymd(cur);
+
+      if (transActive && transDate != null && cur === transDate) {
+        curRate = tRate; curHours = transHrs;
+        dayLog.push('\n' + fmtDate(cur, true) + ': 🚀 JOB TRANSITION! New Rate: $' + pyFloat(curRate) + '/hr');
+        acted = true;
+      }
+
+      for (var di = 0; di < bills.length; di++) {
+        var db = bills[di];
+        if (db.type === 'Expense' && (debts[di] || 0) > 0 && num(db.apr, 0) > 0) {
+          var dInt = debts[di] * (num(db.apr, 0) / 100 / 365);
+          debts[di] += dInt;
+          mIntAcc += dInt;
+        }
+      }
+
+      if (savings > 0 && savApy > 0) {
+        var sInt = savings * (savApy / 100 / 365);
+        savings += sInt;
+        mSavIntAcc += sInt;
+        chartSav += sInt;
+      }
+
+      if (dp[2] === 1) {
+        if (mIntAcc > 0) {
+          if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+          dayLog.push(' 📉 Debt Interest Charged: -$' + mIntAcc.toFixed(2));
+          mIntAcc = 0.0; acted = true;
+        }
+        if (mSavIntAcc > 0) {
+          if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+          dayLog.push(' 📈 Savings Interest Earned: +$' + mSavIntAcc.toFixed(2));
+          mSavIntAcc = 0.0; acted = true;
+        }
+      }
+
+      var isPayday = (cur in paySet);
+      if (isPayday) {
+        var gross = curRate * curHours * ((freq === 'Bi-Weekly' || freq === 'Semi-Monthly') ? 2 : 1);
+        var net = gross * (1 - taxRate / 100);
+        bucket += net;
+        if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+        dayLog.push(' 💸 PAYDAY (+$' + net.toFixed(2) + ')');
+        acted = true;
+      }
+
+      for (var bi = 0; bi < bills.length; bi++) {
+        var bill = bills[bi];
+        if (!isBillDueOnDate(bill, cur)) continue;
+        if (paidSkips[bi]) {
+          paidSkips[bi] = false;
+          if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+          dayLog.push(' ✅ ' + bill.name + ' (Already Logged)');
+          acted = true;
+          continue;
+        }
+        if (bill.type === 'Income') {
+          bucket += num(bill.amount, 0);
+          if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+          dayLog.push(' 💵 Received ' + bill.name + ': +$' + num(bill.amount, 0).toFixed(2));
+          acted = true;
+        } else {
+          var tdebt = num(bill.total_debt, 0);
+          var rem = tdebt > 0 ? (debts[bi] || 0) : 999999;
+          if (tdebt > 0 && rem <= 0) continue;
+          var due = Math.min(num(bill.amount, 0), rem);
+          if (due !== 0) {
+            bucket -= due;
+            chartBase += due;
+            if (tdebt > 0) debts[bi] -= due;
+            if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+            dayLog.push(' Paid ' + bill.name + ': $' + due.toFixed(2));
+            acted = true;
+          }
+        }
+      }
+
+      if (bucket < floor && savings > 0) {
+        var pull = Math.min(floor - bucket, savings);
+        bucket += pull; savings -= pull;
+        if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
+        dayLog.push(' 🚑 EMERGENCY PULL: $' + pull.toFixed(2) + ' from savings');
+        acted = true;
+      }
+
+      if (isPayday) {
+        var idx = paySet[cur];
+        var nextPay = (idx + 1 < paydates.length) ? paydates[idx + 1] : cur + 30;
+        var simBucket = bucket, simDebts = {}, simSkips = {}, minBal = bucket;
+        for (var si = 0; si < bills.length; si++) {
+          if (debts[si] !== undefined) simDebts[si] = debts[si];
+          simSkips[si] = paidSkips[si];
+        }
+        var cd = cur + 1;
+        while (cd < nextPay) {
+          for (var qi = 0; qi < bills.length; qi++) {
+            var qb = bills[qi];
+            if (!isBillDueOnDate(qb, cd)) continue;
+            if (simSkips[qi]) { simSkips[qi] = false; continue; }
+            if (qb.type === 'Income') {
+              simBucket += num(qb.amount, 0);
+            } else {
+              var qt = num(qb.total_debt, 0);
+              var qr = qt > 0 ? (simDebts[qi] || 0) : 999999;
+              var qdue = Math.min(num(qb.amount, 0), qr);
+              if (qdue !== 0) {
+                simBucket -= qdue;
+                if (qt > 0) simDebts[qi] -= qdue;
+              }
+            }
+          }
+          if (simBucket < minBal) minBal = simBucket;
+          cd++;
+        }
+
+        var surplus = Math.max(0, minBal - floor);
+
+        if (surplus > 0) {
+          var bids = [];
+          for (var ki = 0; ki < bills.length; ki++) {
+            var kb = bills[ki];
+            if (kb.type === 'Bucket' && kb.snowball && (bucketsBal[ki] || 0) < num(kb.amount, 0)) {
+              var pri = /^\d+$/.test(String(kb.due_day)) ? parseInt(kb.due_day, 10) : 99;
+              bids.push([pri, ki]);
+            }
+          }
+          bids.sort(function (a, b2) { return a[0] - b2[0] || a[1] - b2[1]; });
+          for (var bj = 0; bj < bids.length; bj++) {
+            if (surplus <= 0) break;
+            var tid = bids[bj][1], tb = bills[tid];
+            var need = num(tb.amount, 0) - (bucketsBal[tid] || 0);
+            var p = Math.min(surplus, need);
+            bucketsBal[tid] = (bucketsBal[tid] || 0) + p;
+            bucket -= p; surplus -= p;
+            chartSav += p; savings += p;
+            dayLog.push(' 🪣 Funded ' + tb.name + ': +$' + p.toFixed(2) +
+              ' (' + bucketsBal[tid].toFixed(0) + '/' + num(tb.amount, 0).toFixed(0) + ')');
+          }
+        }
+
+        if (surplus > 0) {
+          var t = Math.min(surplus, targetSav);
+          if (t > 0) {
+            savings += t; bucket -= t; surplus -= t;
+            chartSav += t;
+            dayLog.push(' 🏦 Target Met: $' + t.toFixed(2) + ' to savings');
+          }
+          var targets = [];
+          for (var vi = 0; vi < bills.length; vi++) {
+            if ((debts[vi] || 0) > 0 && bills[vi].snowball && bills[vi].type === 'Expense') {
+              targets.push([vi, debts[vi]]);
+            }
+          }
+          while (targets.length > 0 && surplus > 0) {
+            var best = 0;
+            for (var ti2 = 1; ti2 < targets.length; ti2++) {
+              if (targets[ti2][1] < targets[best][1]) best = ti2;
+            }
+            var tid2 = targets[best][0];
+            var p2 = Math.min(surplus, targets[best][1]);
+            debts[tid2] -= p2; bucket -= p2; surplus -= p2;
+            chartSnow += p2;
+            dayLog.push(' 🔥 SNOWBALL: extra $' + p2.toFixed(2) + ' to ' + bills[tid2].name);
+            if (debts[tid2] <= 0) {
+              targets.splice(best, 1);
+              dayLog.push(' 🎉 ' + bills[tid2].name + ' ERASED!');
+            } else {
+              break;
+            }
+          }
+          if (surplus > 0) {
+            savings += surplus; bucket -= surplus;
+            chartSav += surplus;
+            dayLog.push(' 💵 Swept $' + surplus.toFixed(2) + ' to savings');
+          }
+        }
+      }
+
+      if (acted) {
+        dayLog.push(' End Bal: $' + bucket.toFixed(2));
+        logs.push(dayLog.join('\n'));
+      }
+
+      if (isPayday || cur === endSerial - 1) {
+        report.push({
+          Wk: (cur - startSerial) / 7.0,
+          Base: chartBase, Sav: chartSav, Snow: chartSnow,
+          Bal: bucket, TSav: savings
+        });
+        chartBase = 0; chartSav = 0; chartSnow = 0;
+      }
+
+      cur++;
+    }
+
+    if (!report.length) {
+      report.push({ Wk: 0, Base: 0, Sav: 0, Snow: 0, Bal: bucket, TSav: savings });
+    }
+    return { report: report, log: logs.join('') };
+  }
+
+  // Build the sim opts from a profile object (Python save-schema), like run_and_visualize()
+  function optsFromProfile(p, which) { // which: 'std' | 'cmp'
+    var sr = num(p.std_rate, 17.8), cr = num(p.cmp_rate, 19.0);
+    var rate = which === 'std' ? sr : cr;
+    var tRate = num(p['trans_' + which], NaN);
+    tRate = isNaN(tRate) ? rate : tRate;
+    var simStart = String(p.sim_start || '').trim();
+    var nextPay = String(p.next_paydate || '').trim();
+    var transDate = String(p.trans_date || '').trim();
+    return {
+      rate: rate,
+      hours: num(p.hours, 40),
+      taxRate: num(p.tax_rate, 18.4),
+      targetSav: num(p.sav_tgt, 150),
+      startChk: num(p.start_chk, 0),
+      startSav: num(p.start_sav, 0),
+      floor: num(p.safety_floor, 100),
+      timeline: p.timeline || '3 Months',
+      tRate: tRate,
+      transHrs: num(p.trans_hrs, 0),
+      transActive: !!p.trans_active,
+      transDateSerial: p.trans_active ? parseDate(transDate) : null,
+      nextPaydateSerial: parseDate(nextPay) != null ? parseDate(nextPay) : todaySerial(),
+      simStartSerial: simStart ? parseDate(simStart) : null,
+      payFreq: p.pay_freq || 'Bi-Weekly',
+      savApy: num(p.sav_apy, 4.5)
+    };
+  }
+
+  function runBoth(profile) {
+    var bills = sortBills(normalizeBills(profile.bills || []), 'Due/Pri', false);
+    var s = runSimulation(bills, optsFromProfile(profile, 'std'));
+    var c = runSimulation(bills, optsFromProfile(profile, 'cmp'));
+    return { bills: bills, std: s, cmp: c };
+  }
+
+  return {
+    TIME_MAP: TIME_MAP, CHART_XLIM: CHART_XLIM, TIMELINES: TIMELINES,
+    parseDate: parseDate, fmtDate: fmtDate, todaySerial: todaySerial,
+    ymd: ymd, isoWeekday: isoWeekday, actualDueDate: actualDueDate,
+    isBillDueOnDate: isBillDueOnDate, generatePaydates: generatePaydates,
+    normalizeBills: normalizeBills, sortBills: sortBills,
+    runSimulation: runSimulation, optsFromProfile: optsFromProfile, runBoth: runBoth
+  };
+});
+</script>
+<script>/* Financial Forecaster web app — UI + storage. Engine: window.ForecastEngine */
+(function () {
+'use strict';
+var E = window.ForecastEngine;
+var $ = function (id) { return document.getElementById(id); };
+
+var LS_KEY = 'ffw_profiles_v1';
+var INPUT_IDS = ['sim_start','next_paydate','pay_freq','start_chk','start_sav','sav_apy',
+  'std_rate','cmp_rate','hours','tax_rate','safety_floor','sav_tgt'];
+
+function todayISO() {
+  var n = new Date();
+  return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+}
+function defaultProfile() {
+  return {
+    std_rate: '17.8', cmp_rate: '19.0', hours: '40', tax_rate: '18.4',
+    safety_floor: '100', sav_tgt: '150', start_chk: '0', start_sav: '0',
+    sav_apy: '4.5', sim_start: '', next_paydate: todayISO(), pay_freq: 'Bi-Weekly',
+    timeline: '3 Months',
+    trans_active: false, trans_date: '', trans_std: '', trans_cmp: '', trans_hrs: '',
+    is_dark_mode: true, bills: []
+  };
+}
+function loadStore() {
+  try {
+    var s = JSON.parse(localStorage.getItem(LS_KEY));
+    if (s && s.profiles && s.active && s.profiles[s.active]) return s;
+  } catch (e) {}
+  var p = defaultProfile();
+  return { active: 'Main_Forecast.json', profiles: { 'Main_Forecast.json': p } };
+}
+function saveStore() { try { localStorage.setItem(LS_KEY, JSON.stringify(store)); } catch (e) {} }
+var store = loadStore();
+function P() { return store.profiles[store.active]; }
+
+var sortCol = 'Due/Pri', sortRev = false, logTab = 'std', logQuery = '';
+var lastResult = null, lastBills = [];
+var recalcTimer = null;
+
+function toast(msg) {
+  var t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, 2200);
+}
+function num(v, fb) { var n = parseFloat(v); return isNaN(n) ? fb : n; }
+function money(n) {
+  var neg = n < 0;
+  var s = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg ? '-$' : '$') + s;
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function daySuffix(v) {
+  var suf = (11 <= v && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[v % 10] || 'th');
+  return v + suf;
+}
+var WD = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' };
+
+function scheduleRecalc() {
+  clearTimeout(recalcTimer);
+  recalcTimer = setTimeout(function () { readInputs(); saveStore(); recalc(); }, 300);
+}
+function readInputs() {
+  var p = P();
+  INPUT_IDS.forEach(function (k) { p[k] = $('in_' + k).value; });
+  p.timeline = $('timelineSel').value;
+  p.is_dark_mode = document.documentElement.getAttribute('data-theme') === 'dark';
+}
+function fillInputs() {
+  var p = P();
+  INPUT_IDS.forEach(function (k) { $('in_' + k).value = p[k] != null ? p[k] : ''; });
+  $('timelineSel').value = p.timeline || '3 Months';
+  applyTheme(!!p.is_dark_mode);
+  updateTransBtn();
+}
+function applyTheme(dark) {
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  $('themeBtn').textContent = dark ? '🌙' : '☀️';
+}
+function updateTransBtn() {
+  var p = P(), b = $('transBtn');
+  if (p.trans_active && p.trans_date) {
+    b.textContent = '✓ Job Changes: ' + p.trans_date;
+    b.className = 'btn good';
+  } else { b.textContent = '+ Add Job Transition'; b.className = 'btn primary'; }
+}
+
+/* ---------- simulation ---------- */
+function recalc() {
+  var p = P();
+  p.bills = E.normalizeBills(p.bills || []); // normalize stored bills in place (idempotent)
+  var bills = E.sortBills(p.bills, sortCol, sortRev); // same object references
+  lastBills = bills;
+  lastResult = E.runBoth(p);
+  renderSummary(p);
+  renderBills();
+  renderLogs();
+  drawChart();
+}
+function renderSummary(p) {
+  var fl = num(p.safety_floor, 100);
+  var css = getComputedStyle(document.documentElement);
+  function set(id, df, colorVar) {
+    var el = $(id);
+    var c = df.report.length ? df.report[df.report.length - 1] : { Bal: 0, TSav: 0 };
+    el.querySelector('.val').textContent =
+      'Forecast End Balance → Checking: ' + money(c.Bal) + '  |  Savings: ' + money(c.TSav);
+    el.style.color = c.Bal >= fl ? css.getPropertyValue(colorVar) : css.getPropertyValue('--red');
+  }
+  set('stdSum', lastResult.std, '--blue');
+  set('cmpSum', lastResult.cmp, '--green');
+}
+
+/* ---------- bills table ---------- */
+function fmtDue(b) {
+  if (b.type === 'Bucket') return 'Pri: ' + b.due_day;
+  if (b.freq === 'Monthly') {
+    var v = parseInt(b.due_day, 10);
+    return isNaN(v) ? String(b.due_day) : daySuffix(v);
+  }
+  if (b.freq === 'Weekly') {
+    var w = parseInt(b.due_day, 10);
+    return WD[w] || String(b.due_day);
+  }
+  return String(b.due_day);
+}
+function fmtAmt(b) {
+  if (b.type === 'Bucket') return 'Tgt: $' + Math.round(num(b.amount, 0));
+  var a = money(num(b.amount, 0));
+  return b.type === 'Income' ? '+' + a : a;
+}
+function fmtAction(b) {
+  if (!b.snowball) return '-';
+  if (b.type === 'Expense' && num(b.total_debt, 0) > 0) return 'Yes';
+  if (b.type === 'Bucket' && num(b.total_debt, 0) < num(b.amount, 0)) return 'Fund';
+  return '-';
+}
+function renderBills() {
+  var tb = $('billBody'); tb.innerHTML = '';
+  if (!lastBills.length) {
+    tb.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:18px">No bills yet — tap ＋ Add to create one.</td></tr>';
+    return;
+  }
+  lastBills.forEach(function (b) {
+    var tr = document.createElement('tr');
+    var tag = b.type === 'Income' ? 'income' : (b.type === 'Bucket' ? 'bucket' : 'expense');
+    var apr = num(b.apr, 0);
+    tr.innerHTML =
+      '<td><input type="checkbox" class="paidchk" ' + (b.paid ? 'checked' : '') + ' aria-label="paid"></td>' +
+      '<td><b>' + esc(b.name) + '</b></td>' +
+      '<td><span class="tag ' + tag + '">' + esc(b.type) + '</span></td>' +
+      '<td>' + esc(fmtAmt(b)) + '</td>' +
+      '<td>' + esc(b.type === 'Bucket' ? 'N/A' : b.freq) + '</td>' +
+      '<td>' + esc(fmtDue(b)) + '</td>' +
+      '<td>' + (apr > 0 ? apr + '%' : '-') + '</td>' +
+      '<td>' + (b.type === 'Income' ? '-' : money(num(b.total_debt, 0))) + '</td>' +
+      '<td>' + esc(fmtAction(b)) + '</td>' +
+      '<td><button class="btn ghost" data-act="edit">✏️</button></td>' +
+      '<td><button class="btn ghost" data-act="del" style="color:var(--red)">🗑</button></td>';
+    var billRef = b;
+    tr.querySelector('.paidchk').addEventListener('change', function (ev) { togglePaid(billRef, ev.target.checked, ev.target); });
+    tr.querySelector('[data-act="edit"]').addEventListener('click', function () { openBillModal(billRef); });
+    tr.querySelector('[data-act="del"]').addEventListener('click', function () {
+      if (confirm('Delete "' + billRef.name + '"?')) {
+        var p = P();
+        p.bills = p.bills.filter(function (x) { return x !== billRef; });
+        saveStore(); recalc(); toast('Deleted');
+      }
+    });
+    tb.appendChild(tr);
+  });
+  // sort header indicators
+  document.querySelectorAll('#billTable th[data-c]').forEach(function (th) {
+    var c = th.getAttribute('data-c');
+    th.textContent = th.textContent.replace(/ [▲▼]$/, '');
+    if (c === sortCol) th.textContent += sortRev ? ' ▼' : ' ▲';
+  });
+}
+function togglePaid(bill, toPaid, checkbox) {
+  var amt = num(bill.amount, 0);
+  if (toPaid && !bill.paid && amt > 0 && (bill.type === 'Expense' || bill.type === 'Income')) {
+    var action = bill.type === 'Expense' ? 'Deduct' : 'Add';
+    var prep = bill.type === 'Expense' ? 'from' : 'to';
+    var msg = "Has '" + bill.name + "' cleared the bank?\n\nOK = " + action + ' ' + money(amt) + ' ' + prep +
+      ' Checking right now.\nCancel = just check the box and skip it in the forecast.';
+    if (confirm(msg)) {
+      var p = P();
+      var chk = num(p.start_chk, 0);
+      chk = bill.type === 'Expense' ? chk - amt : chk + amt;
+      p.start_chk = String(Math.round(chk * 100) / 100);
+      $('in_start_chk').value = p.start_chk;
+    }
+  }
+  bill.paid = toPaid;
+  saveStore(); recalc();
+}
+
+/* ---------- logs ---------- */
+var KW = [
+  ['JOB TRANSITION', 'var(--yellow)'], ['Interest Charged:', 'var(--red)'],
+  ['Interest Earned:', 'var(--teal)'], ['🪣 Funded', 'var(--blue)'],
+  ['SNOWBALL:', 'var(--orange)'], ['PAYDAY', 'var(--purple)'],
+  ['Received', 'var(--teal)'], ['to savings', 'var(--teal)'], ['Swept', 'var(--teal)'],
+  ['EMERGENCY PULL:', 'var(--red)'], ['ERASED!', 'var(--yellow)'],
+  ['(Already Logged)', 'var(--muted)'], ['Paid', '#DC143C']
+];
+function colorize(line) {
+  var h = esc(line);
+  KW.forEach(function (kv) {
+    var k = kv[0], c = kv[1];
+    var ek = esc(k);
+    h = h.split(ek).join('<span style="color:' + c + ';font-weight:bold">' + ek + '</span>');
+  });
+  return h;
+}
+function filterLog(raw) {
+  var q = logQuery.toLowerCase();
+  var out = [], cur = '';
+  raw.split('\n').forEach(function (line) {
+    if (!line.trim()) return;
+    if (line[0] !== ' ' && line.indexOf(':') >= 0) { cur = line; }
+    else if (!q || line.toLowerCase().indexOf(q) >= 0) {
+      if (cur) { if (out.length) out.push(''); out.push(cur); cur = ''; }
+      out.push(line);
+    }
+  });
+  return out.join('\n').trim();
+}
+function renderLogs() {
+  var raw = logTab === 'std' ? lastResult.std.log : lastResult.cmp.log;
+  var html = filterLog(raw).split('\n').map(colorize).join('\n');
+  $('logPre').innerHTML = html || '<span style="color:var(--muted)">No log entries.</span>';
+}
+
+/* ---------- chart (hand-rolled canvas) ---------- */
+var chartGeom = null;
+function drawChart() {
+  var cv = $('chart'), tip = $('tooltip');
+  tip.style.display = 'none';
+  var dpr = window.devicePixelRatio || 1;
+  var W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  cv.width = W * dpr; cv.height = H * dpr;
+  var ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  var css = getComputedStyle(document.documentElement);
+  var C = function (v) { return css.getPropertyValue(v).trim(); };
+  var p = P();
+  var rs = lastResult.std.report, rc = lastResult.cmp.report;
+  var floor = num(p.safety_floor, 100);
+  var xlim = E.CHART_XLIM[p.timeline] || 12.8;
+  var x0 = -1, x1 = xlim;
+  var L = 58, R = 12, T = 12, B = 30;
+  var pw = W - L - R, ph = H - T - B;
+  var X = function (wk) { return L + (wk - x0) / (x1 - x0) * pw; };
+  var yMin = Math.min(0, floor), yMax = 1;
+  rs.concat(rc).forEach(function (r) {
+    yMin = Math.min(yMin, r.Bal);
+    yMax = Math.max(yMax, r.Base + r.Snow + r.Sav, r.Bal);
+  });
+  yMin -= (yMax - yMin) * 0.05; yMax += (yMax - yMin) * 0.05;
+  var Y = function (v) { return T + ph - (v - yMin) / (yMax - yMin) * ph; };
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = C('--bg'); ctx.fillRect(0, 0, W, H);
+  var tc = C('--fg'), gc = document.documentElement.getAttribute('data-theme') === 'dark' ? '#555555' : '#dddddd';
+  // grid + y labels
+  ctx.strokeStyle = gc; ctx.globalAlpha = 0.3; ctx.fillStyle = tc; ctx.globalAlpha = 1;
+  ctx.font = '11px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (var g = 0; g <= 4; g++) {
+    var v = yMin + (yMax - yMin) * g / 4, y = Y(v);
+    ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke(); ctx.globalAlpha = 1;
+    var lbl = v >= 1000 || v <= -1000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v).toString();
+    ctx.fillText(lbl, L - 6, y);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('Weeks from Start Date', L + pw / 2, H - 20);
+  ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Cash ($)', 0, 0); ctx.restore();
+
+  var bw = 0.35 * (pw / (x1 - x0)); // bar width px (0.35 week-units)
+  function hatchRect(x, y, w, h, color) {
+    ctx.save();
+    ctx.globalAlpha = 0.55; ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1; ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1;
+    for (var d = -h; d < w + h; d += 5) {
+      ctx.beginPath(); ctx.moveTo(x + d, y + h); ctx.lineTo(x + d + h, y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function bar(x, base, snow, sav, hatched) {
+    var cols = [C('--red'), C('--orange'), C('--teal')];
+    var vals = [base, snow, sav];
+    for (var sgi = 0; sgi < 3; sgi++) {
+      if (vals[sgi] <= 0) continue;
+      var yTop = Y(stackVal(vals, sgi)), yBot = Y(stackVal(vals, sgi - 1));
+      if (hatched) hatchRect(x, yTop, bw, yBot - yTop, cols[sgi]);
+      else { ctx.globalAlpha = 0.9; ctx.fillStyle = cols[sgi]; ctx.fillRect(x, yTop, bw, yBot - yTop); ctx.globalAlpha = 1; }
+    }
+  }
+  function stackVal(vals, upTo) { var s = 0; for (var i = 0; i <= upTo; i++) s += vals[i]; return s; }
+  var n = Math.max(rs.length, rc.length);
+  for (var i = 0; i < n; i++) {
+    if (rs[i]) bar(X(rs[i].Wk) - bw, rs[i].Base, rs[i].Snow, rs[i].Sav, false);
+    if (rc[i]) bar(X(rc[i].Wk), rc[i].Base, rc[i].Snow, rc[i].Sav, true);
+  }
+  function line(report, color, marker) {
+    ctx.strokeStyle = color; ctx.lineWidth = 3;
+    if (marker === 'x') ctx.setLineDash([7, 5]);
+    ctx.beginPath();
+    report.forEach(function (r, j) {
+      var x = X(r.Wk), y = Y(r.Bal);
+      if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = color;
+    report.forEach(function (r) {
+      var x = X(r.Wk), y = Y(r.Bal);
+      if (marker === 'o') { ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); }
+      else {
+        ctx.strokeStyle = color; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5);
+        ctx.moveTo(x + 5, y - 5); ctx.lineTo(x - 5, y + 5); ctx.stroke();
+      }
+    });
+  }
+  line(rs, C('--blue'), 'o');
+  line(rc, C('--green'), 'x');
+  // safety floor
+  ctx.strokeStyle = C('--red'); ctx.setLineDash([2, 4]); ctx.lineWidth = 1.5; ctx.globalAlpha = 0.7;
+  ctx.beginPath(); ctx.moveTo(L, Y(floor)); ctx.lineTo(W - R, Y(floor)); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+  $('legend').innerHTML =
+    '<span><i style="background:var(--red)"></i>Bills</span>' +
+    '<span><i style="background:var(--orange)"></i>Snowball</span>' +
+    '<span><i style="background:var(--teal)"></i>To Savings</span>' +
+    '<span><i style="background:var(--blue)"></i>Std Bal</span>' +
+    '<span><i style="background:var(--green)"></i>Cmp Bal (hatched)</span>' +
+    '<span><i style="background:var(--red);opacity:.6"></i>Safety Floor</span>';
+
+  chartGeom = { rs: rs, rc: rc, X: X, x0: x0, x1: x1, L: L, R: R, W: W,
+    startSerial: startSerialOf(p) };
+}
+function startSerialOf(p) {
+  var s = String(p.sim_start || '').trim();
+  var v = s ? E.parseDate(s) : null;
+  return v != null ? v : E.todaySerial();
+}
+function chartHover(clientX, clientY, rect) {
+  var tip = $('tooltip');
+  if (!chartGeom) return;
+  var g = chartGeom;
+  var wk = g.x0 + (clientX - rect.left - g.L) / (g.W - g.L - g.R) * (g.x1 - g.x0);
+  var best = -1, bd = 1e9;
+  g.rs.forEach(function (r, i) {
+    var d = Math.abs(r.Wk - wk);
+    if (d < bd) { bd = d; best = i; }
+  });
+  if (best < 0 || bd >= 0.5) { tip.style.display = 'none'; return; }
+  var rs = g.rs[best], rc = g.rc[best] || { Bal: 0 };
+  var cur = g.startSerial + Math.round(rs.Wk * 7);
+  var dateStr;
+  if (best > 0) {
+    var prevDays = Math.round(g.rs[best - 1].Wk * 7);
+    var pStart = g.startSerial + prevDays + 1;
+    dateStr = E.fmtDate(pStart, false) + ' - ' + E.fmtDate(cur, true);
+    if (pStart === cur) dateStr = E.fmtDate(cur, true);
+  } else dateStr = E.fmtDate(cur, true);
+  tip.textContent = dateStr + '\n\nStd Checking: ' + money(rs.Bal) +
+    '\nCmp Checking: ' + money(rc.Bal) + '\nTotal Savings: ' + money(rs.TSav);
+  tip.style.display = 'block';
+  var wrap = document.querySelector('.chart-wrap').getBoundingClientRect();
+  var tx = clientX - wrap.left + 14, ty = clientY - wrap.top - 10;
+  if (tx + 250 > wrap.width) tx = clientX - wrap.left - 250;
+  tip.style.left = Math.max(4, tx) + 'px';
+  tip.style.top = Math.max(4, ty) + 'px';
+}
+
+/* ---------- CSV export ---------- */
+function exportCSV() {
+  if (!lastResult || !lastResult.std.report.length) { toast('Nothing to export'); return; }
+  var rows = ['Wk,Base,Sav,Snow,Std_Chk_Bal,Std_Sav_Bal,Cmp_Chk_Bal,Cmp_Sav_Bal'];
+  var rs = lastResult.std.report, rc = lastResult.cmp.report;
+  for (var i = 0; i < rs.length; i++) {
+    var c = rc[i] || {};
+    rows.push([rs[i].Wk, rs[i].Base, rs[i].Sav, rs[i].Snow, rs[i].Bal, rs[i].TSav,
+      c.Bal != null ? c.Bal : '', c.TSav != null ? c.TSav : ''].join(','));
+  }
+  download(rows.join('\n'), store.active.replace(/\.json$/i, '') + '_forecast.csv', 'text/csv');
+}
+function download(content, filename, mime) {
+  var b = new Blob([content], { type: mime });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+/* ---------- profile import/export ---------- */
+function exportProfileJSON() {
+  var p = P();
+  var out = {
+    std_rate: num(p.std_rate, 0), cmp_rate: num(p.cmp_rate, 0), hours: num(p.hours, 0),
+    tax_rate: num(p.tax_rate, 0), safety_floor: num(p.safety_floor, 0), sav_tgt: num(p.sav_tgt, 0),
+    start_chk: num(p.start_chk, 0), start_sav: num(p.start_sav, 0), sav_apy: num(p.sav_apy, 0),
+    sim_start: p.sim_start || '', next_paydate: p.next_paydate || '',
+    pay_freq: p.pay_freq || 'Bi-Weekly', timeline: p.timeline || '3 Months',
+    trans_active: !!p.trans_active, trans_date: p.trans_date || '',
+    trans_std: p.trans_std !== '' && p.trans_std != null ? num(p.trans_std, 0) : '',
+    trans_cmp: p.trans_cmp !== '' && p.trans_cmp != null ? num(p.trans_cmp, 0) : '',
+    trans_hrs: p.trans_hrs !== '' && p.trans_hrs != null ? num(p.trans_hrs, 0) : '',
+    is_dark_mode: !!p.is_dark_mode, bills: p.bills || []
+  };
+  Object.keys(p).forEach(function (k) { if (!(k in out)) out[k] = p[k]; }); // round-trip extras
+  download(JSON.stringify(out, null, 4), store.active, 'application/json');
+  toast('Profile exported');
+}
+function importProfileJSON(obj) {
+  if (!obj || typeof obj !== 'object' || !Array.isArray(obj.bills)) {
+    toast('That file is not a valid forecaster profile'); return;
+  }
+  var d = Object.assign(defaultProfile(), obj); // keep any extra keys (e.g. sidebar_width)
+  d.bills = E.normalizeBills(obj.bills);
+  var name = prompt('Profile name:', 'Imported_Forecast.json') || 'Imported_Forecast.json';
+  name = name.trim();
+  if (!/\.json$/i.test(name)) name += '.json';
+  if (store.profiles[name] && !confirm('"' + name + '" exists. Overwrite?')) return;
+  store.profiles[name] = d;
+  store.active = name;
+  saveStore(); refreshProfileUI(); fillInputs(); recalc();
+  toast('Imported ' + d.bills.length + ' bills');
+}
+
+/* ---------- modals ---------- */
+function openModal(id) { $(id).classList.add('open'); }
+function closeModal(id) { $(id).classList.remove('open'); }
+document.querySelectorAll('.modal-back').forEach(function (m) {
+  m.addEventListener('click', function (e) { if (e.target === m) m.classList.remove('open'); });
+});
+
+var editingBill = null; // null = new
+function openBillModal(bill) {
+  editingBill = bill || null;
+  $('billModalTitle').textContent = bill ? 'Edit Item' : 'Add Item';
+  $('b_name').value = bill ? bill.name : 'New Item';
+  $('b_type').value = bill ? bill.type : 'Expense';
+  $('b_amount').value = bill ? bill.amount : '0';
+  $('b_freq').value = bill && bill.freq ? bill.freq : 'Monthly';
+  $('b_apr').value = bill ? bill.apr : '0';
+  $('b_debt').value = bill ? bill.total_debt : '0';
+  $('b_snowball').checked = bill ? !!bill.snowball : false;
+  $('b_paid').checked = bill ? !!bill.paid : false;
+  updateBillModalDue(bill ? bill.due_day : 1);
+  openModal('billModal');
+}
+function updateBillModalDue(curVal) {
+  var type = $('b_type').value, freq = $('b_freq').value;
+  var wrap = $('b_due_wrap'), lbl = $('b_due_lbl');
+  var debtRow = $('b_debt_row');
+  if (type === 'Bucket') {
+    lbl.textContent = 'Priority (1 = first)';
+    wrap.innerHTML = '<input id="b_due" inputmode="numeric" style="width:100%;background:var(--entry);color:var(--input-fg);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:15px">';
+    $('b_due').value = curVal != null ? curVal : 1;
+    $('b_debt_lbl').textContent = 'Saved So Far ($)';
+    $('b_snowball_lbl').textContent = 'Auto-fund from surplus';
+    $('b_freq').disabled = true;
+  } else {
+    $('b_freq').disabled = false;
+    $('b_debt_lbl').textContent = 'Debt Balance ($)';
+    $('b_snowball_lbl').textContent = 'Debt snowball (extra payments)';
+    if (freq === 'Monthly') {
+      lbl.textContent = 'Due Day (1-31)';
+      wrap.innerHTML = '<input id="b_due" inputmode="numeric" style="width:100%;background:var(--entry);color:var(--input-fg);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:15px">';
+      $('b_due').value = curVal != null ? curVal : 1;
+    } else if (freq === 'Weekly') {
+      lbl.textContent = 'Due Weekday';
+      var s = '<select id="b_due" style="width:100%;background:var(--entry);color:var(--input-fg);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:15px">';
+      for (var d = 1; d <= 7; d++) s += '<option value="' + d + '"' + (String(curVal) === String(d) ? ' selected' : '') + '>' + WD[d] + '</option>';
+      wrap.innerHTML = s + '</select>';
+    } else {
+      lbl.textContent = 'Due Date';
+      wrap.innerHTML = '<input id="b_due" type="date" style="width:100%;background:var(--entry);color:var(--input-fg);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:15px">';
+      $('b_due').value = curVal || '';
+    }
+  }
+}
+function saveBillModal() {
+  var p = P();
+  var type = $('b_type').value, freq = $('b_freq').value;
+  var dueEl = $('b_due');
+  var bill = editingBill || {};
+  bill.name = $('b_name').value.trim() || 'New Item';
+  bill.type = type;
+  bill.amount = num($('b_amount').value, 0);
+  bill.apr = num($('b_apr').value, 0);
+  bill.total_debt = num($('b_debt').value, 0);
+  bill.snowball = $('b_snowball').checked;
+  bill.paid = $('b_paid').checked;
+  if (type === 'Bucket') {
+    bill.freq = 'Monthly';
+    bill.due_day = Math.max(1, parseInt(dueEl.value, 10) || 1);
+  } else if (freq === 'Monthly') {
+    bill.freq = 'Monthly';
+    var dd = parseInt(dueEl.value, 10);
+    bill.due_day = isNaN(dd) ? 1 : Math.max(1, Math.min(31, dd));
+  } else if (freq === 'Weekly') {
+    bill.freq = 'Weekly';
+    bill.due_day = parseInt(dueEl.value, 10) || 1;
+  } else {
+    bill.freq = 'One-Time';
+    bill.due_day = dueEl.value || todayISO();
+  }
+  if (type === 'Income') bill.snowball = false;
+  if (!editingBill) p.bills.push(bill);
+  closeModal('billModal'); saveStore(); recalc();
+  toast(editingBill ? 'Updated' : 'Added');
+}
+
+/* ---------- profiles UI ---------- */
+function refreshProfileUI() {
+  var sel = $('profileSel');
+  sel.innerHTML = '';
+  Object.keys(store.profiles).forEach(function (n) {
+    var o = document.createElement('option');
+    o.value = n; o.textContent = n.replace(/\.json$/i, '');
+    sel.appendChild(o);
+  });
+  sel.value = store.active;
+}
+
+/* ---------- wire up ---------- */
+function init() {
+  var tl = $('timelineSel');
+  E.TIMELINES.forEach(function (t) {
+    var o = document.createElement('option'); o.value = t; o.textContent = t; tl.appendChild(o);
+  });
+  refreshProfileUI();
+  fillInputs();
+
+  INPUT_IDS.forEach(function (k) {
+    $('in_' + k).addEventListener('input', scheduleRecalc);
+  });
+  tl.addEventListener('change', scheduleRecalc);
+  $('profileSel').addEventListener('change', function () {
+    store.active = this.value; saveStore(); fillInputs(); recalc();
+  });
+  $('newProfileBtn').addEventListener('click', function () {
+    var name = prompt('Enter new scenario name (e.g. MoveToOK):');
+    if (!name) return;
+    name = name.trim();
+    if (!/\.json$/i.test(name)) name += '.json';
+    if (!store.profiles[name]) store.profiles[name] = defaultProfile();
+    store.active = name; saveStore(); refreshProfileUI(); fillInputs(); recalc();
+    toast('Profile created');
+  });
+  $('themeBtn').addEventListener('click', function () {
+    var dark = document.documentElement.getAttribute('data-theme') !== 'dark';
+    applyTheme(dark); P().is_dark_mode = dark; saveStore(); drawChart(); renderLogs();
+  });
+  $('transBtn').addEventListener('click', function () {
+    var p = P();
+    $('t_date').value = p.trans_date || '';
+    $('t_std').value = p.trans_std !== '' && p.trans_std != null ? p.trans_std : '';
+    $('t_cmp').value = p.trans_cmp !== '' && p.trans_cmp != null ? p.trans_cmp : '';
+    $('t_hrs').value = p.trans_hrs !== '' && p.trans_hrs != null ? p.trans_hrs : '';
+    openModal('transModal');
+  });
+  $('transSave').addEventListener('click', function () {
+    var p = P();
+    var d = $('t_date').value.trim(), s = $('t_std').value.trim(), h = $('t_hrs').value.trim();
+    p.trans_active = !!(d && s && h);
+    p.trans_date = d; p.trans_std = s; p.trans_cmp = $('t_cmp').value.trim(); p.trans_hrs = h;
+    closeModal('transModal'); updateTransBtn(); saveStore(); recalc();
+    toast(p.trans_active ? 'Transition activated' : 'Transition saved (inactive)');
+  });
+  $('transClear').addEventListener('click', function () {
+    var p = P();
+    p.trans_active = false; p.trans_date = ''; p.trans_std = ''; p.trans_cmp = ''; p.trans_hrs = '';
+    closeModal('transModal'); updateTransBtn(); saveStore(); recalc(); toast('Transition cleared');
+  });
+  $('transCancel').addEventListener('click', function () { closeModal('transModal'); });
+
+  $('addBillBtn').addEventListener('click', function () { openBillModal(null); });
+  $('b_type').addEventListener('change', function () { updateBillModalDue(1); });
+  $('b_freq').addEventListener('change', function () { updateBillModalDue(1); });
+  $('billSave').addEventListener('click', saveBillModal);
+  $('billCancel').addEventListener('click', function () { closeModal('billModal'); });
+
+  $('realityBtn').addEventListener('click', function () { $('r_amt').value = ''; openModal('realityModal'); });
+  $('realityCancel').addEventListener('click', function () { closeModal('realityModal'); });
+  $('realitySave').addEventListener('click', function () {
+    var amt = num(String($('r_amt').value).replace(/[$,]/g, ''), NaN);
+    if (!(amt > 0)) { closeModal('realityModal'); return; }
+    var p = P();
+    var t = $('r_type').value;
+    var chk = num(p.start_chk, 0), sav = num(p.start_sav, 0);
+    if (t === 'Expense (Checking)') chk -= amt;
+    else if (t === 'Expense (Savings)') sav -= amt;
+    else if (t === 'Income (Checking)') chk += amt;
+    else if (t === 'Income (Savings)') sav += amt;
+    else if (t.indexOf('Chk -> Sav') >= 0) { chk -= amt; sav += amt; }
+    else { sav -= amt; chk += amt; }
+    p.start_chk = String(Math.round(chk * 100) / 100);
+    p.start_sav = String(Math.round(sav * 100) / 100);
+    $('in_start_chk').value = p.start_chk; $('in_start_sav').value = p.start_sav;
+    closeModal('realityModal'); saveStore(); recalc(); toast('Balances updated');
+  });
+
+  document.querySelectorAll('#billTable th[data-c]').forEach(function (th) {
+    th.addEventListener('click', function () {
+      var c = th.getAttribute('data-c');
+      if (!c) return;
+      if (sortCol === c) sortRev = !sortRev; else { sortCol = c; sortRev = false; }
+      recalc();
+    });
+  });
+  document.querySelectorAll('.tabbtn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.tabbtn').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active'); logTab = b.getAttribute('data-tab'); renderLogs();
+    });
+  });
+  $('logsearch').addEventListener('input', function () {
+    logQuery = this.value; renderLogs();
+  });
+
+  $('csvBtn').addEventListener('click', exportCSV);
+  $('exportJsonBtn').addEventListener('click', exportProfileJSON);
+  $('importBtn').addEventListener('click', function () { $('fileInput').click(); });
+  $('fileInput').addEventListener('change', function () {
+    var f = this.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try { importProfileJSON(JSON.parse(r.result)); }
+      catch (e) { toast('Could not read that file'); }
+      $('fileInput').value = '';
+    };
+    r.readAsText(f);
+  });
+  $('wipeBtn').addEventListener('click', function () {
+    if (confirm('Delete all bills in this profile?')) {
+      P().bills = []; saveStore(); recalc(); toast('Bills wiped');
+    }
+  });
+
+  var cv = $('chart');
+  cv.addEventListener('mousemove', function (e) {
+    chartHover(e.clientX, e.clientY, cv.getBoundingClientRect());
+  });
+  cv.addEventListener('mouseleave', function () { $('tooltip').style.display = 'none'; });
+  cv.addEventListener('touchstart', function (e) {
+    var t = e.touches[0];
+    chartHover(t.clientX, t.clientY, cv.getBoundingClientRect());
+  }, { passive: true });
+  window.addEventListener('resize', function () { drawChart(); });
+
+  recalc();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+else init();
+// Invisible hook for automated testing/debugging (no UI surface).
+window.__ff = { store: function () { return store; }, profile: P, recalc: recalc,
+  result: function () { return lastResult; }, bills: function () { return lastBills; } };
+})();
+</script>
+</body>
+</html>
