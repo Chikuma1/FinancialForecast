@@ -236,7 +236,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     <div class="field"><label>Amount ($)</label><input id="b_amount" inputmode="decimal"></div>
   </div>
   <div class="grid2">
-    <div class="field"><label>Frequency</label><select id="b_freq"><option>Monthly</option><option>Weekly</option><option>One-Time</option></select></div>
+    <div class="field"><label>Frequency</label><select id="b_freq"><option>Monthly</option><option>Per Check</option><option>Weekly</option><option>One-Time</option></select></div>
     <div class="field"><label id="b_due_lbl">Due Day</label><span id="b_due_wrap"></span></div>
   </div>
   <div class="grid2" id="b_debt_row">
@@ -340,10 +340,16 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     return Math.floor(Date.UTC(p[0], p[1] - 1, dd) / DAY);
   }
 
-  function isBillDueOnDate(bill, serial) {
+  function isBillDueOnDate(bill, serial, paySet) {
     if (bill.type === 'Bucket') return false;
     var freq = bill.freq || 'Monthly';
     var dueVal = bill.due_day;
+    if (freq === 'Per Check') {
+      // Due on every payday, never on a non-payday. The lookahead only visits
+      // non-paydays, so it naturally never reserves for these (deduction
+      // happens on the payday itself, after the paycheck lands).
+      return !!paySet && (serial in paySet);
+    }
     if (freq === 'Monthly') {
       var n = parseInt(dueVal, 10);
       if (isNaN(n)) return false;
@@ -370,8 +376,11 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     var firstDate = dueSerial, deferred = false;
     if (allowLate && grace > 0) {
       var pd = -1;
+      // A Per Check bill is due on a payday already, so "defer to the next
+      // payday" means the strictly-next one.
+      var strictAfter = (bill.freq === 'Per Check');
       for (var i = 0; i < paydates.length; i++) {
-        if (paydates[i] >= dueSerial) { pd = paydates[i]; break; }
+        if (strictAfter ? paydates[i] > dueSerial : paydates[i] >= dueSerial) { pd = paydates[i]; break; }
       }
       if (pd >= 0 && pd - dueSerial <= grace) firstDate = pd;
       else firstDate = dueSerial + grace;
@@ -498,6 +507,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     if (!('grace_days' in c)) c.grace_days = 0;
     if (!('late_fee' in c)) c.late_fee = 0.0;
     if (!('smart_split' in c)) c.smart_split = false;
+    if (c.freq === 'Per Check') c.due_day = 1; // due_day is meaningless for Per Check
     if (c.amount === undefined) c.amount = 0.0;
     if (c.total_debt === undefined) c.total_debt = 0.0;
     if (!c.name) c.name = 'New Item';
@@ -524,9 +534,10 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     var isd = /^\d+$/.test(String(val));
     if (b.type === 'Bucket') return [-1, isd ? parseInt(val, 10) : 99, name];
     if (freq === 'Monthly') return [0, isd ? parseInt(val, 10) : 0, name];
-    if (freq === 'Weekly') return [1, isd ? parseInt(val, 10) : 0, name];
-    if (freq === 'One-Time') return [2, String(val), name];
-    return [3, String(val), name];
+    if (freq === 'Per Check') return [1, 0, name];
+    if (freq === 'Weekly') return [2, isd ? parseInt(val, 10) : 0, name];
+    if (freq === 'One-Time') return [3, String(val), name];
+    return [4, String(val), name];
   }
 
   function cmpKeys(a, b) {
@@ -661,7 +672,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
 
       for (var bi = 0; bi < bills.length; bi++) {
         var bill = bills[bi];
-        if (!isBillDueOnDate(bill, cur)) continue;
+        if (!isBillDueOnDate(bill, cur, paySet)) continue;
         if (paidSkips[bi]) {
           paidSkips[bi] = false;
           if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
@@ -745,7 +756,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
         while (cd < nextPay) {
           for (var qi = 0; qi < bills.length; qi++) {
             var qb = bills[qi];
-            if (!isBillDueOnDate(qb, cd)) continue;
+            if (!isBillDueOnDate(qb, cd, paySet)) continue;
             if (simSkips[qi]) { simSkips[qi] = false; continue; }
             if (qb.type === 'Income') {
               simBucket += num(qb.amount, 0);
@@ -1068,6 +1079,7 @@ function renderSummary(p) {
 /* ---------- bills table ---------- */
 function fmtDue(b) {
   if (b.type === 'Bucket') return 'Pri: ' + b.due_day;
+  if (b.freq === 'Per Check') return 'Each pay';
   if (b.freq === 'Monthly') {
     var v = parseInt(b.due_day, 10);
     return isNaN(v) ? String(b.due_day) : daySuffix(v);
@@ -1460,6 +1472,9 @@ function updateBillModalDue(curVal) {
       lbl.textContent = 'Due Day (1-31)';
       wrap.innerHTML = '<input id="b_due" inputmode="numeric" style="width:100%;background:var(--entry);color:var(--input-fg);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:15px">';
       $('b_due').value = curVal != null ? curVal : 1;
+    } else if (freq === 'Per Check') {
+      lbl.textContent = 'Due';
+      wrap.innerHTML = '<input id="b_due" disabled value="Each payday" style="width:100%;background:var(--entry);color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:15px">';
     } else if (freq === 'Weekly') {
       lbl.textContent = 'Due Weekday';
       var s = '<select id="b_due" style="width:100%;background:var(--entry);color:var(--input-fg);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:15px">';
@@ -1494,6 +1509,9 @@ function saveBillModal() {
   } else if (freq === 'Weekly') {
     bill.freq = 'Weekly';
     bill.due_day = parseInt(dueEl.value, 10) || 1;
+  } else if (freq === 'Per Check') {
+    bill.freq = 'Per Check';
+    bill.due_day = 1;
   } else {
     bill.freq = 'One-Time';
     bill.due_day = dueEl.value || todayISO();
