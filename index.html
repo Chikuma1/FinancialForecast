@@ -115,6 +115,14 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
 .modal .btnrow .btn { flex:1; }
 .checkrow { display:flex; align-items:center; gap:10px; margin:10px 0; font-size:14px;}
 .checkrow input { width:20px; height:20px; accent-color:var(--teal);}
+.checkinline { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); cursor:pointer; }
+.checkinline input { width:18px; height:18px; accent-color:var(--teal); }
+.adjrow { display:flex; gap:8px; align-items:center; }
+.adjrow input[type="date"] { flex:1.5; min-width:0; background:var(--entry); color:var(--input-fg);
+  border:1px solid var(--border); border-radius:8px; padding:0 8px; font-size:15px; min-height:44px; }
+.adjrow input.adjhrs { flex:1; min-width:0; background:var(--entry); color:var(--input-fg);
+  border:1px solid var(--border); border-radius:8px; padding:9px 10px; font-size:15px; min-height:44px; }
+.adjrow .btn { min-height:44px; min-width:44px; }
 #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
   background:var(--card); border:1px solid var(--teal); color:var(--fg);
   padding:10px 18px; border-radius:10px; font-size:14px; z-index:99; display:none;}
@@ -160,6 +168,14 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
           <div class="field"><label>Sim Start (blank = today)</label><input id="in_sim_start" placeholder="YYYY-MM-DD" inputmode="numeric"></div>
           <div class="field"><label>Next Payday</label><input id="in_next_paydate" placeholder="YYYY-MM-DD" inputmode="numeric"></div>
           <div class="field"><label>Pay Frequency</label><select id="in_pay_freq"><option>Weekly</option><option>Bi-Weekly</option><option>Semi-Monthly</option></select></div>
+        </div>
+      </div>
+      <div class="set-group">
+        <h3>⏱ Paycheck Adjustments</h3>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Worked a short (or long) week? Set that check's hours and the forecast adjusts that payday's take-home.</div>
+        <div id="payAdjList" style="display:flex;flex-direction:column;gap:8px"></div>
+        <div class="rowflex" style="margin-top:8px">
+          <button class="btn" id="addPayAdjBtn">+ Adjust a paycheck</button>
         </div>
       </div>
       <div class="set-group">
@@ -210,6 +226,7 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     <div class="logtabs">
       <button class="tabbtn active" data-tab="std">Standard Plan</button>
       <button class="tabbtn" data-tab="cmp">Compare Plan</button>
+      <label class="checkinline" title="Group log entries by pay period"><input type="checkbox" id="condenseChk"> Condensed</label>
       <span class="spacer"></span>
       <input id="logsearch" placeholder="🔍 Search logs">
     </div>
@@ -319,6 +336,18 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     var p = ymd(serial);
     var s = MONTHS[p[1] - 1] + ' ' + String(p[2]).padStart(2, '0');
     return withYear ? s + ', ' + p[0] : s;
+  }
+
+  // "YYYY-MM-DD" from a day serial (used for pay-override keys)
+  function isoDate(serial) {
+    var p = ymd(serial);
+    return p[0] + '-' + String(p[1]).padStart(2, '0') + '-' + String(p[2]).padStart(2, '0');
+  }
+
+  // "Oct 19" — month short + unpadded day, no year (condensed-log suffixes)
+  function shortDate(serial) {
+    var p = ymd(serial);
+    return MONTHS[p[1] - 1] + ' ' + p[2];
   }
 
   function todaySerial() {
@@ -488,6 +517,29 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     return isNaN(n) ? fb : n;
   }
 
+  // Normalize the pay_overrides map: { "YYYY-MM-DD": hours/week }.
+  // Lenient: numeric strings OK; bad keys / non-numeric / negative values dropped.
+  function normalizeOverrides(ov) {
+    var out = {};
+    if (ov && typeof ov === 'object' && !Array.isArray(ov)) {
+      for (var k in ov) {
+        // strict date check: reject impossible dates like 2026-13-99
+        // (parseDate alone would roll them over via Date.UTC)
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) continue;
+        var ds = parseDate(k);
+        if (ds === null || isoDate(ds) !== k) continue;
+        var h = parseFloat(ov[k]);
+        if (isFinite(h) && h >= 0) out[k] = h;
+      }
+    }
+    return out;
+  }
+
+  // "32" for 32, "37.5" for 37.5 — for the [Xh/wk adjusted] payday note
+  function fmtHours(h) {
+    return String(Math.round(h * 100) / 100);
+  }
+
   // Normalize one bill dict the way load_data() does
   function normalizeBill(b) {
     var c = {};
@@ -633,11 +685,15 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
 
       var isPayday = (cur in paySet);
       if (isPayday) {
-        var gross = curRate * curHours * ((freq === 'Bi-Weekly' || freq === 'Semi-Monthly') ? 2 : 1);
+        var ovKey = isoDate(cur);
+        var overridden = o.payOverrides && o.payOverrides[ovKey] != null;
+        var paydayHours = overridden ? o.payOverrides[ovKey] : curHours;
+        var gross = curRate * paydayHours * ((freq === 'Bi-Weekly' || freq === 'Semi-Monthly') ? 2 : 1);
         var net = gross * (1 - taxRate / 100);
         bucket += net;
         if (!acted) dayLog.push('\n' + fmtDate(cur, true) + ':');
-        dayLog.push(' 💸 PAYDAY (+$' + net.toFixed(2) + ')');
+        dayLog.push(' 💸 PAYDAY (+$' + net.toFixed(2) + ')' +
+          (overridden ? ' [' + fmtHours(paydayHours) + 'h/wk adjusted]' : ''));
         acted = true;
       }
 
@@ -938,7 +994,8 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
       nextPaydateSerial: parseDate(nextPay) != null ? parseDate(nextPay) : todaySerial(),
       simStartSerial: simStart ? parseDate(simStart) : null,
       payFreq: p.pay_freq || 'Bi-Weekly',
-      savApy: num(p.sav_apy, 4.5)
+      savApy: num(p.sav_apy, 4.5),
+      payOverrides: normalizeOverrides(p.pay_overrides)
     };
   }
 
@@ -949,14 +1006,86 @@ footer .btnrow { display:flex; gap:8px; flex-wrap:wrap;}
     return { bills: bills, std: s, cmp: c };
   }
 
+  /* Condensed day-log view — a pure DISPLAY transform (render time only).
+   * Groups log entries by pay period: each group is headed by a payday date
+   * and contains that payday's entries plus everything up to (not including)
+   * the next payday. Entries on other dates get " (Oct 19)" appended.
+   * One End Bal per group: the balance after the group's last entry.
+   * Events before the first payday form a leading group headed by the first
+   * event's date; events on/after the last payday form a trailing group headed
+   * by the first event date in that range.
+   * raw: engine log text; paySerials: sorted array of payday day-serials. */
+  var LOG_MON = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6,
+                  Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+  function condenseLog(raw, paySerials) {
+    var blocks = [], cur = null;
+    var re = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{4}):(.*)$/;
+    var lines = String(raw == null ? '' : raw).split('\n');
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      if (!line.trim()) continue;
+      var m = re.exec(line);
+      if (m) {
+        var serial = parseDate(m[3] + '-' + String(LOG_MON[m[1]]).padStart(2, '0') +
+                               '-' + String(m[2]).padStart(2, '0'));
+        if (serial === null) { if (cur) cur.lines.push(line); continue; }
+        cur = { date: serial, lines: [] };
+        blocks.push(cur);
+        var rest = m[4].trim();
+        if (rest) cur.lines.push(' ' + rest);
+      } else if (cur) {
+        cur.lines.push(line);
+      }
+    }
+    if (!blocks.length) return String(raw == null ? '' : raw);
+    var pds = (paySerials || []).slice().sort(function (a, b) { return a - b; });
+    var groups = [], cg = null;
+    function groupId(d) {
+      if (!pds.length) return 'all';
+      var i = -1;
+      for (var k = 0; k < pds.length; k++) if (pds[k] <= d) i = k;
+      if (i === -1) return 'lead';
+      if (i === pds.length - 1) return 'trail';
+      return 'p' + pds[i];
+    }
+    for (var bi = 0; bi < blocks.length; bi++) {
+      var b = blocks[bi];
+      var gid = groupId(b.date);
+      if (!cg || cg.id !== gid) { cg = { id: gid, head: b.date, blocks: [] }; groups.push(cg); }
+      cg.blocks.push(b);
+    }
+    var out = [];
+    for (var gi = 0; gi < groups.length; gi++) {
+      var g = groups[gi];
+      if (g.id === 'all' || g.id === 'lead' || g.id === 'trail') g.head = g.blocks[0].date;
+      else g.head = parseInt(g.id.slice(1), 10);
+      out.push(fmtDate(g.head, true) + ':');
+      var lastEndBal = null;
+      for (var bj = 0; bj < g.blocks.length; bj++) {
+        var bb = g.blocks[bj];
+        var suffix = (bb.date !== g.head) ? ' (' + shortDate(bb.date) + ')' : '';
+        for (var bl = 0; bl < bb.lines.length; bl++) {
+          var ln = bb.lines[bl];
+          if (/^\s*End Bal:/.test(ln)) lastEndBal = ln + suffix;
+          else out.push(ln + suffix);
+        }
+      }
+      if (lastEndBal !== null) out.push(lastEndBal);
+    }
+    return out.join('\n');
+  }
+
   return {
     TIME_MAP: TIME_MAP, CHART_XLIM: CHART_XLIM, TIMELINES: TIMELINES,
     parseDate: parseDate, fmtDate: fmtDate, todaySerial: todaySerial,
+    isoDate: isoDate, shortDate: shortDate,
     ymd: ymd, isoWeekday: isoWeekday, actualDueDate: actualDueDate,
     isBillDueOnDate: isBillDueOnDate, generatePaydates: generatePaydates,
-    normalizeBills: normalizeBills, sortBills: sortBills,
+    normalizeBills: normalizeBills, normalizeOverrides: normalizeOverrides,
+    sortBills: sortBills,
     occurrenceParts: occurrenceParts,
-    runSimulation: runSimulation, optsFromProfile: optsFromProfile, runBoth: runBoth
+    runSimulation: runSimulation, optsFromProfile: optsFromProfile, runBoth: runBoth,
+    condenseLog: condenseLog
   };
 });
 </script>
@@ -981,7 +1110,8 @@ function defaultProfile() {
     sav_apy: '4.5', sim_start: '', next_paydate: todayISO(), pay_freq: 'Bi-Weekly',
     timeline: '3 Months',
     trans_active: false, trans_date: '', trans_std: '', trans_cmp: '', trans_hrs: '',
-    is_dark_mode: true, bills: []
+    is_dark_mode: true, bills: [],
+    pay_overrides: {}, condense_log: true
   };
 }
 function loadStore() {
@@ -1037,6 +1167,8 @@ function fillInputs() {
   $('timelineSel').value = p.timeline || '3 Months';
   applyTheme(!!p.is_dark_mode);
   updateTransBtn();
+  $('condenseChk').checked = p.condense_log !== false;
+  renderPayAdj();
 }
 function applyTheme(dark) {
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -1048,6 +1180,79 @@ function updateTransBtn() {
     b.textContent = '✓ Job Changes: ' + p.trans_date;
     b.className = 'btn good';
   } else { b.textContent = '+ Add Job Transition'; b.className = 'btn primary'; }
+}
+
+/* ---------- paycheck adjustments (per-payday hours overrides) ---------- */
+function paydaySerialsForProfile() {
+  var p = P();
+  var totalDays = E.TIME_MAP[p.timeline] || 90;
+  var startSerial = startSerialOf(p);
+  var np = E.parseDate(String(p.next_paydate || '').trim());
+  if (np == null) np = E.todaySerial();
+  return E.generatePaydates(startSerial, totalDays, p.pay_freq || 'Bi-Weekly', np);
+}
+function renderPayAdj() {
+  var p = P();
+  if (!p.pay_overrides || typeof p.pay_overrides !== 'object') p.pay_overrides = {};
+  var list = $('payAdjList');
+  if (!list) return;
+  list.innerHTML = '';
+  var keys = Object.keys(p.pay_overrides).sort();
+  if (!keys.length) {
+    list.innerHTML = '<div style="font-size:13px;color:var(--muted)">No adjustments — every check uses your normal hours.</div>';
+    return;
+  }
+  keys.forEach(function (k) {
+    var row = document.createElement('div');
+    row.className = 'adjrow';
+    row.innerHTML =
+      '<input type="date" value="' + esc(k) + '" aria-label="Payday date">' +
+      '<input class="adjhrs" inputmode="decimal" placeholder="hrs/wk" value="' + esc(String(p.pay_overrides[k])) + '" aria-label="Hours per week">' +
+      '<button class="btn danger" aria-label="Remove adjustment">✕</button>';
+    var dateIn = row.children[0], hrsIn = row.children[1], del = row.children[2];
+    dateIn.addEventListener('change', function () {
+      var nk = dateIn.value.trim();
+      var nds = /^\d{4}-\d{2}-\d{2}$/.test(nk) ? E.parseDate(nk) : null;
+      if (nds == null || E.isoDate(nds) !== nk) {
+        toast('Enter a valid date (YYYY-MM-DD)'); renderPayAdj(); return;
+      }
+      if (paydaySerialsForProfile().indexOf(E.parseDate(nk)) < 0)
+        toast('⚠️ ' + nk + ' is not a payday in this timeline — saved anyway');
+      if (nk !== k) {
+        var v = p.pay_overrides[k];
+        delete p.pay_overrides[k];
+        p.pay_overrides[nk] = v;
+      }
+      saveStore(); recalc(); renderPayAdj();
+    });
+    hrsIn.addEventListener('change', function () {
+      var h = parseFloat(hrsIn.value);
+      if (!(h >= 0 && h <= 168)) { toast('Hours must be between 0 and 168'); renderPayAdj(); return; }
+      p.pay_overrides[k] = h;
+      saveStore(); recalc(); renderPayAdj();
+    });
+    del.addEventListener('click', function () {
+      delete p.pay_overrides[k];
+      saveStore(); recalc(); renderPayAdj();
+    });
+    list.appendChild(row);
+  });
+}
+function addPayAdjustment() {
+  var p = P();
+  if (!p.pay_overrides || typeof p.pay_overrides !== 'object') p.pay_overrides = {};
+  var pds = paydaySerialsForProfile().slice().sort(function (a, b) { return a - b; });
+  var today = E.todaySerial();
+  var pick = null;
+  for (var i = 0; i < pds.length; i++) {
+    var key = E.isoDate(pds[i]);
+    if (pds[i] >= today && !(key in p.pay_overrides)) { pick = key; break; }
+  }
+  if (pick == null && pds.length) pick = E.isoDate(pds[pds.length - 1]);
+  if (pick == null) { toast('No paydays in this timeline'); return; }
+  p.pay_overrides[pick] = num(p.hours, 40);
+  saveStore(); recalc(); renderPayAdj();
+  toast('Adjustment added for ' + pick + ' — set the hours');
 }
 
 /* ---------- simulation ---------- */
@@ -1213,6 +1418,7 @@ function filterLog(raw) {
 }
 function renderLogs() {
   var raw = logTab === 'std' ? lastResult.std.log : lastResult.cmp.log;
+  if (P().condense_log !== false) raw = E.condenseLog(raw, paydaySerialsForProfile());
   var html = filterLog(raw).split('\n').map(colorize).join('\n');
   $('logPre').innerHTML = html || '<span style="color:var(--muted)">No log entries.</span>';
 }
@@ -1396,7 +1602,8 @@ function exportProfileJSON() {
     trans_std: p.trans_std !== '' && p.trans_std != null ? num(p.trans_std, 0) : '',
     trans_cmp: p.trans_cmp !== '' && p.trans_cmp != null ? num(p.trans_cmp, 0) : '',
     trans_hrs: p.trans_hrs !== '' && p.trans_hrs != null ? num(p.trans_hrs, 0) : '',
-    is_dark_mode: !!p.is_dark_mode, bills: p.bills || []
+    is_dark_mode: !!p.is_dark_mode, bills: p.bills || [],
+    pay_overrides: p.pay_overrides || {}, condense_log: p.condense_log !== false
   };
   Object.keys(p).forEach(function (k) { if (!(k in out)) out[k] = p[k]; }); // round-trip extras
   download(JSON.stringify(out, null, 4), store.active, 'application/json');
@@ -1408,6 +1615,8 @@ function importProfileJSON(obj) {
   }
   var d = Object.assign(defaultProfile(), obj); // keep any extra keys (e.g. sidebar_width)
   d.bills = E.normalizeBills(obj.bills);
+  d.pay_overrides = E.normalizeOverrides(obj.pay_overrides);
+  if (typeof d.condense_log !== 'boolean') d.condense_log = true;
   var name = prompt('Profile name:', 'Imported_Forecast.json') || 'Imported_Forecast.json';
   name = name.trim();
   if (!/\.json$/i.test(name)) name += '.json';
@@ -1596,6 +1805,12 @@ function init() {
     closeModal('transModal'); updateTransBtn(); saveStore(); recalc(); toast('Transition cleared');
   });
   $('transCancel').addEventListener('click', function () { closeModal('transModal'); });
+
+  $('addPayAdjBtn').addEventListener('click', addPayAdjustment);
+  $('condenseChk').addEventListener('change', function () {
+    P().condense_log = this.checked;
+    saveStore(); renderLogs();
+  });
 
   $('addBillBtn').addEventListener('click', function () { openBillModal(null); });
   $('b_type').addEventListener('change', function () { updateBillModalDue(1); updateBillModalExtras(); });
